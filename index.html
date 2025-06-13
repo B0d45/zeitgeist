@@ -25,7 +25,7 @@
             text-align: center;
             color: #333;
         }
-        .timer-section, .project-section, .report-section, .login-section, .entries-section {
+        .timer-section, .project-section, .report-section, .login-section, .entries-section, .donation-section {
             margin-bottom: 20px;
         }
         button {
@@ -50,7 +50,7 @@
         button.delete:hover {
             background-color: #c82333;
         }
-        select, input[type="text"], input[type="date"] {
+        select, input[type="text"], input[type="date"], input[type="number"] {
             padding: 8px;
             margin: 5px;
             border: 1px solid #ddd;
@@ -181,12 +181,13 @@
             <p>Gesamtstunden: <span id="totalHours">0</span></p>
         </div>
 
-        <!-- Bitcoin Lightning Payment -->
-        <div class="payment-section hidden" id="paymentSection">
-            <h2>Premium-Funktion (Bitcoin Lightning)</h2>
-            <p>Schalte erweiterte Berichte für 1000 Sats frei:</p>
-            <button onclick="makeLightningPayment()">Zahlen mit Lightning</button>
-            <p class="error" id="paymentError"></p>
+        <!-- Donation Section -->
+        <div class="donation-section hidden" id="donationSection">
+            <h2>Spenden</h2>
+            <p>Spende hier einige Sats:</p>
+            <input type="number" id="donationAmount" placeholder="Betrag in Sats (z.B. 1000)" min="1">
+            <button onclick="makeLightningDonation()">Jetzt spenden</button>
+            <p class="error" id="donationError"></p>
         </div>
     </div>
 
@@ -199,6 +200,9 @@
         let publicKey = null;
         let relays = [];
         let pool = null;
+
+        // Deine Lightning-Adresse
+        const LIGHTNING_ADDRESS = 'HIER LIGHTNING ADRESSE EINTRAGEN';
 
         // Datenstrukturen
         let timeEntries = JSON.parse(localStorage.getItem('timeEntries')) || [];
@@ -399,7 +403,7 @@
             document.getElementById('entriesSection').classList.toggle('hidden', !isLoggedIn);
             document.getElementById('projectSection').classList.toggle('hidden', !isLoggedIn);
             document.getElementById('reportSection').classList.toggle('hidden', !isLoggedIn);
-            document.getElementById('paymentSection').classList.toggle('hidden', !isLoggedIn);
+            document.getElementById('donationSection').classList.toggle('hidden', !isLoggedIn);
         }
 
         // Timer Funktionen
@@ -713,17 +717,44 @@
             doc.save('zeiterfassung_bericht.pdf');
         }
 
-        // Bitcoin Lightning Zahlung
-        async function makeLightningPayment() {
+        // Lightning Spende
+        async function makeLightningDonation() {
             try {
                 if (!window.webln) {
                     throw new Error('Keine Lightning-Wallet gefunden. Bitte installiere z.B. Alby und aktiviere WebLN.');
                 }
                 await window.webln.enable();
-                document.getElementById('paymentError').textContent = 'Hinweis: Für echte Lightning-Zahlungen benötigst du eine gültige Rechnung von einem Server. Kontaktiere den Entwickler für eine Integration.';
-                throw new Error('Testmodus: Keine gültige Rechnung verfügbar.');
+                const amountInput = document.getElementById('donationAmount').value;
+                const amount = parseInt(amountInput) || 1000; // Standard: 1000 Sats
+                if (amount < 1) {
+                    throw new Error('Bitte einen gültigen Betrag in Sats eingeben.');
+                }
+
+                // LNURL für die Lightning-Adresse abrufen
+                const lnurlResponse = await fetch(`https://getalby.com/.well-known/lnurlp/NAME-EINSETZEN`);
+                if (!lnurlResponse.ok) {
+                    throw new Error('Fehler beim Abrufen der LNURL-Daten.');
+                }
+                const lnurlData = await lnurlResponse.json();
+                if (!lnurlData.callback) {
+                    throw new Error('Ungültige LNURL-Konfiguration.');
+                }
+
+                // Rechnung für den Betrag anfordern
+                const invoiceResponse = await fetch(`${lnurlData.callback}?amount=${amount * 1000}`); // Betrag in Millisats
+                if (!invoiceResponse.ok) {
+                    throw new Error('Fehler beim Erstellen der Rechnung.');
+                }
+                const invoiceData = await invoiceResponse.json();
+                if (!invoiceData.pr) {
+                    throw new Error('Keine Rechnung erhalten.');
+                }
+
+                // Zahlung über WebLN senden
+                await window.webln.sendPayment(invoiceData.pr);
+                document.getElementById('donationError').textContent = 'Danke für deine Spende!';
             } catch (err) {
-                document.getElementById('paymentError').textContent = err.message;
+                document.getElementById('donationError').textContent = 'Spende fehlgeschlagen: ' + err.message;
             }
         }
 
