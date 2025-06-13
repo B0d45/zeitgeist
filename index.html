@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zeiterfassungs-App</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://unpkg.com/nostr-tools@1.17.0/lib/nostr.bundle.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .timer-section, .project-section, .report-section, .login-section, .entries-section {
+            margin-bottom: 20px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            cursor: pointer;
+            border-radius: 4px;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        button.delete {
+            background-color: #dc3545;
+        }
+        button.delete:hover {
+            background-color: #c82333;
+        }
+        select, input[type="text"], input[type="date"] {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .timer-display {
+            font-size: 24px;
+            text-align: center;
+            margin: 10px 0;
+        }
+        .error {
+            color: red;
+            font-size: 14px;
+        }
+        .hidden {
+            display: none;
+        }
+        .edit-input {
+            width: 100%;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Zeiterfassungs-App</h1>
+
+        <!-- Login Section -->
+        <div class="login-section" id="loginSection">
+            <h2>Nostr Login</h2>
+            <p>Öffentlicher Schlüssel: <span id="pubkeyDisplay">Nicht eingeloggt</span></p>
+            <input type="text" id="customRelayInput" placeholder="Eigenes Relay (z.B. wss://mein-relay.com oder ws://abcdefg.onion)">
+            <button onclick="addCustomRelay()">Relay hinzufügen</button>
+            <select id="relaySelect" multiple>
+                <option value="wss://relay.damus.io" selected>wss://relay.damus.io</option>
+                <option value="wss://nos.lol" selected>wss://nos.lol</option>
+                <option value="wss://nostr.wine" selected>wss://nostr.wine</option>
+                <option value="wss://relay.snort.social">wss://relay.snort.social</option>
+                <option value="wss://nostr.fmt.wiz.biz">wss://nostr.fmt.wiz.biz</option>
+            </select>
+            <button onclick="loginWithAlby()">Mit Alby einloggen</button>
+            <button onclick="generateNostrKeys()">Neue Schlüssel generieren</button>
+            <p id="generatedKeyDisplay" class="hidden"></p>
+            <p class="error" id="loginError"></p>
+        </div>
+
+        <!-- Timer Section -->
+        <div class="timer-section hidden" id="timerSection">
+            <h2>Zeiterfassung</h2>
+            <div class="timer-display" id="timerDisplay">00:00:00</div>
+            <select id="projectSelect">
+                <option value="">Kein Projekt auswählen</option>
+            </select>
+            <input type="text" id="projectFreeText" placeholder="Projekt (optional)" class="hidden">
+            <select id="clientSelect">
+                <option value="">Kein Client auswählen</option>
+            </select>
+            <input type="text" id="clientFreeText" placeholder="Client (optional)" class="hidden">
+            <button id="startButton" onclick="startTimer()">Start</button>
+            <button id="stopButton" onclick="stopTimer()" disabled>Stop</button>
+        </div>
+
+        <!-- Entries Section -->
+        <div class="entries-section hidden" id="entriesSection">
+            <h2>Gespeicherte Zeiteinträge</h2>
+            <table id="entriesTable">
+                <thead>
+                    <tr>
+                        <th>Datum</th>
+                        <th>Projekt</th>
+                        <th>Client</th>
+                        <th>Dauer</th>
+                        <th>Aktion</th>
+                    </tr>
+                </thead>
+                <tbody id="entriesBody"></tbody>
+            </table>
+        </div>
+
+        <!-- Project/Client Management -->
+        <div class="project-section hidden" id="projectSection">
+            <h2>Projekte und Clients</h2>
+            <input type="text" id="projectNameInput" placeholder="Projektname">
+            <button onclick="addProject()">Projekt hinzufügen</button>
+            <input type="text" id="clientNameInput" placeholder="Clientname">
+            <button onclick="addClient()">Client hinzufügen</button>
+            <h3>Projekte</h3>
+            <ul id="projectList"></ul>
+            <h3>Clients</h3>
+            <ul id="clientList"></ul>
+        </div>
+
+        <!-- Report Section -->
+        <div class="report-section hidden" id="reportSection">
+            <h2>Berichte</h2>
+            <select id="reportFilter">
+                <option value="day">Tag</option>
+                <option value="week">Woche</option>
+                <option value="month">Monat</option>
+            </select>
+            <input type="date" id="reportDate">
+            <button onclick="generateReport()">Bericht generieren</button>
+            <button onclick="exportToPDF()">PDF Export</button>
+            <table id="reportTable" class="hidden">
+                <thead>
+                    <tr>
+                        <th>Datum</th>
+                        <th>Projekt</th>
+                        <th>Client</th>
+                        <th>Dauer</th>
+                    </tr>
+                </thead>
+                <tbody id="reportBody"></tbody>
+            </table>
+            <p>Gesamtstunden: <span id="totalHours">0</span></p>
+        </div>
+
+        <!-- Bitcoin Lightning Payment -->
+        <div class="payment-section hidden" id="paymentSection">
+            <h2>Premium-Funktion (Bitcoin Lightning)</h2>
+            <p>Schalte erweiterte Berichte für 1000 Sats frei:</p>
+            <button onclick="makeLightningPayment()">Zahlen mit Lightning</button>
+            <p class="error" id="paymentError"></p>
+        </div>
+    </div>
+
+    <script>
+        const { jsPDF } = window.jspdf;
+        let timerInterval = null;
+        let startTime = null;
+        let elapsedTime = 0;
+        let isLoggedIn = false;
+        let publicKey = null;
+        let relays = [];
+        let pool = null;
+
+        // Datenstrukturen
+        let timeEntries = JSON.parse(localStorage.getItem('timeEntries')) || [];
+        let projects = JSON.parse(localStorage.getItem('projects')) || [];
+        let clients = JSON.parse(localStorage.getItem('clients')) || [];
+
+        // Initialisierung
+        document.addEventListener('DOMContentLoaded', () => {
+            setTodayDate();
+            loadCustomRelay();
+            updateSelectOptions();
+            updateLists();
+            updateEntriesTable();
+            console.log('Initialisierte timeEntries:', timeEntries);
+            toggleFreeTextFields();
+        });
+
+        // Benutzerdefiniertes Relay laden
+        function loadCustomRelay() {
+            const customRelay = localStorage.getItem('customRelay');
+            if (customRelay) {
+                document.getElementById('customRelayInput').value = customRelay;
+                const relaySelect = document.getElementById('relaySelect');
+                const option = document.createElement('option');
+                option.value = customRelay;
+                option.text = customRelay;
+                option.selected = true;
+                relaySelect.appendChild(option);
+            }
+        }
+
+        // Benutzerdefiniertes Relay hinzufügen
+        function addCustomRelay() {
+            const customRelayInput = document.getElementById('customRelayInput').value.trim();
+            const relaySelect = document.getElementById('relaySelect');
+            // Validierung für wss:// oder Onion-Links (ws://*.onion oder wss://*.onion)
+            const isValidRelay = /^(wss:\/\/[a-zA-Z0-9-.]+)|(wss?:\/\/[a-zA-Z0-9-]+\.onion)$/.test(customRelayInput);
+            if (isValidRelay) {
+                // Prüfen, ob das Relay bereits existiert
+                const exists = Array.from(relaySelect.options).some(option => option.value === customRelayInput);
+                if (!exists) {
+                    const option = document.createElement('option');
+                    option.value = customRelayInput;
+                    option.text = customRelayInput;
+                    option.selected = true;
+                    relaySelect.appendChild(option);
+                    localStorage.setItem('customRelay', customRelayInput);
+                    document.getElementById('loginError').textContent = `Benutzerdefiniertes Relay ${customRelayInput} hinzugefügt.`;
+                } else {
+                    document.getElementById('loginError').textContent = 'Dieses Relay ist bereits in der Liste.';
+                }
+            } else {
+                document.getElementById('loginError').textContent = 'Bitte eine gültige Relay-URL eingeben (z.B. wss://mein-relay.com oder ws://abcdefg.onion).';
+            }
+        }
+
+        // Zeige/Verberge Freitextfelder basierend auf Dropdown-Auswahl
+        function toggleFreeTextFields() {
+            const projectSelect = document.getElementById('projectSelect');
+            const clientSelect = document.getElementById('clientSelect');
+            const projectFreeText = document.getElementById('projectFreeText');
+            const clientFreeText = document.getElementById('clientFreeText');
+
+            projectSelect.addEventListener('change', () => {
+                projectFreeText.classList.toggle('hidden', projectSelect.value !== '');
+                if (projectSelect.value !== '') projectFreeText.value = '';
+            });
+            clientSelect.addEventListener('change', () => {
+                clientFreeText.classList.toggle('hidden', clientSelect.value !== '');
+                if (clientSelect.value !== '') clientFreeText.value = '';
+            });
+        }
+
+        // Nostr Login mit Alby
+        async function loginWithAlby() {
+            try {
+                if (!window.nostr) {
+                    throw new Error('Alby-Extension nicht gefunden. Bitte installiere Alby.');
+                }
+                publicKey = await window.nostr.getPublicKey();
+                document.getElementById('pubkeyDisplay').textContent = window.NostrTools.nip19.npubEncode(publicKey);
+                isLoggedIn = true;
+
+                // Relays aus der Dropdown-Auswahl holen
+                const relaySelect = document.getElementById('relaySelect');
+                relays = Array.from(relaySelect.selectedOptions).map(option => option.value);
+
+                if (relays.length === 0) {
+                    throw new Error('Bitte mindestens ein Relay auswählen.');
+                }
+
+                // SimplePool für mehrere Relays initialisieren
+                pool = new window.NostrTools.SimplePool();
+
+                // Mit Relays verbinden
+                await Promise.all(relays.map(async (url) => {
+                    try {
+                        const relay = await pool.ensureRelay(url);
+                        console.log('Verbunden mit Relay:', url);
+                    } catch (err) {
+                        console.warn('Fehler bei Relay-Verbindung:', url, err);
+                        document.getElementById('loginError').textContent += ` Warnung: Verbindung zu ${url} fehlgeschlagen. Stelle für Onion-Relays sicher, dass ein Tor-Proxy (z.B. Tor Browser) verwendet wird.`;
+                    }
+                }));
+
+                // Bestehende Events abrufen
+                await fetchNostrEvents();
+
+                toggleSections();
+                document.getElementById('loginError').textContent = '';
+            } catch (err) {
+                document.getElementById('loginError').textContent = 'Login fehlgeschlagen: ' + err.message;
+            }
+        }
+
+        // Bestehende Nostr-Events abrufen
+        async function fetchNostrEvents() {
+            try {
+                const filter = {
+                    kinds: [30000],
+                    authors: [publicKey]
+                };
+                const events = await pool.list(relays, [filter]);
+                console.log('Abgerufene Nostr-Events:', events);
+
+                timeEntries = [];
+                projects = [];
+                clients = [];
+
+                events.forEach(event => {
+                    const type = event.tags.find(tag => tag[0] === 't')?.[1];
+                    try {
+                        const data = JSON.parse(event.content);
+                        if (type === 'time-entry') {
+                            timeEntries.push(data);
+                        } else if (type === 'project') {
+                            projects.push(data);
+                        } else if (type === 'client') {
+                            clients.push(data);
+                        }
+                    } catch (e) {
+                        console.warn('Fehler beim Parsen von Event-Content:', event);
+                    }
+                });
+
+                // In localStorage speichern als Fallback
+                saveData('timeEntries', timeEntries);
+                saveData('projects', projects);
+                saveData('clients', clients);
+
+                updateSelectOptions();
+                updateLists();
+                updateEntriesTable();
+            } catch (err) {
+                console.error('Fehler beim Abrufen der Events:', err);
+                document.getElementById('loginError').textContent = 'Fehler beim Laden der Daten vom Relay. Lokale Daten werden verwendet. Für Onion-Relays: Prüfe Tor-Proxy-Einstellungen.';
+            }
+        }
+
+        // Nostr-Event erstellen und senden
+        async function publishNostrEvent(type, data) {
+            try {
+                const event = {
+                    kind: 30000,
+                    pubkey: publicKey,
+                    created_at: Math.floor(Date.now() / 1000),
+                    tags: [['t', type]],
+                    content: JSON.stringify(data)
+                };
+                const signedEvent = await window.nostr.signEvent(event);
+                await pool.publish(relays, signedEvent);
+                console.log(`Nostr-Event gesendet (${type}):`, signedEvent);
+            } catch (err) {
+                console.error('Fehler beim Senden des Nostr-Events:', err);
+                document.getElementById('loginError').textContent = 'Fehler beim Speichern der Daten im Relay. Lokale Daten wurden gespeichert. Für Onion-Relays: Prüfe Tor-Proxy.';
+            }
+        }
+
+        // Schlüsselgenerierung
+        function generateNostrKeys() {
+            try {
+                const privKey = window.NostrTools.generatePrivateKey();
+                const nsec = window.NostrTools.nip19.nsecEncode(privKey);
+                const pubKey = window.NostrTools.getPublicKey(privKey);
+                const npub = window.NostrTools.nip19.npubEncode(pubKey);
+                document.getElementById('generatedKeyDisplay').textContent = 
+                    `Privater Schlüssel (sicher speichern!): ${nsec}\nÖffentlicher Schlüssel: ${npub}`;
+                document.getElementById('generatedKeyDisplay').classList.remove('hidden');
+                document.getElementById('loginError').textContent = 'Schlüssel generiert. Bitte importiere den privaten Schlüssel in Alby.';
+            } catch (err) {
+                document.getElementById('loginError').textContent = 'Schlüsselgenerierung fehlgeschlagen: ' + err.message;
+            }
+        }
+
+        function toggleSections() {
+            document.getElementById('loginSection').classList.toggle('hidden', isLoggedIn);
+            document.getElementById('timerSection').classList.toggle('hidden', !isLoggedIn);
+            document.getElementById('entriesSection').classList.toggle('hidden', !isLoggedIn);
+            document.getElementById('projectSection').classList.toggle('hidden', !isLoggedIn);
+            document.getElementById('reportSection').classList.toggle('hidden', !isLoggedIn);
+            document.getElementById('paymentSection').classList.toggle('hidden', !isLoggedIn);
+        }
+
+        // Timer Funktionen
+        function startTimer() {
+            if (!timerInterval) {
+                startTime = Date.now();
+                elapsedTime = 0;
+                timerInterval = setInterval(updateTimer, 1000);
+                document.getElementById('startButton').disabled = true;
+                document.getElementById('stopButton').disabled = false;
+            }
+        }
+
+        function stopTimer() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+                elapsedTime = Date.now() - startTime;
+                const projectId = parseInt(document.getElementById('projectSelect').value) || null;
+                const clientId = parseInt(document.getElementById('clientSelect').value) || null;
+                const projectFreeText = document.getElementById('projectFreeText').value || '';
+                const clientFreeText = document.getElementById('clientFreeText').value || '';
+                
+                const entry = {
+                    id: Date.now(),
+                    projectId,
+                    clientId,
+                    projectFreeText: projectId ? '' : projectFreeText,
+                    clientFreeText: clientId ? '' : clientFreeText,
+                    start: startTime,
+                    end: Date.now(),
+                    duration: elapsedTime
+                };
+                timeEntries.push(entry);
+                saveData('timeEntries', timeEntries);
+                publishNostrEvent('time-entry', entry);
+                console.log('Neuer Zeiteintrag:', entry);
+                updateEntriesTable();
+                
+                elapsedTime = 0;
+                startTime = null;
+                document.getElementById('timerDisplay').textContent = '00:00:00';
+                document.getElementById('startButton').disabled = false;
+                document.getElementById('stopButton').disabled = true;
+            }
+        }
+
+        function updateTimer() {
+            elapsedTime = Date.now() - startTime;
+            const hours = Math.floor(elapsedTime / 3600000);
+            const minutes = Math.floor((elapsedTime % 3600000) / 60000);
+            const seconds = Math.floor((elapsedTime % 60000) / 1000);
+            document.getElementById('timerDisplay').textContent = 
+                `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+        }
+
+        function pad(num) {
+            return num.toString().padStart(2, '0');
+        }
+
+        // Zeit formatieren
+        function formatDuration(ms) {
+            const hours = Math.floor(ms / 3600000);
+            const minutes = Math.floor((ms % 3600000) / 60000);
+            const seconds = Math.floor((ms % 60000) / 1000);
+            return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+        }
+
+        // Zeiteinträge anzeigen
+        function updateEntriesTable() {
+            const entriesBody = document.getElementById('entriesBody');
+            entriesBody.innerHTML = '';
+            console.log('Aktuelle timeEntries:', timeEntries);
+            if (timeEntries.length === 0) {
+                entriesBody.innerHTML = '<tr><td colspan="5">Keine Einträge vorhanden.</td></tr>';
+                return;
+            }
+            timeEntries.forEach(entry => {
+                const project = entry.projectId ? projects.find(p => p.id === entry.projectId) : null;
+                const client = entry.clientId ? clients.find(c => c.id === entry.clientId) : null;
+                const durationFormatted = formatDuration(entry.duration);
+                const projectDisplay = entry.projectFreeText || (project ? project.name : 'Kein Projekt');
+                const clientDisplay = entry.clientFreeText || (client ? client.name : 'Kein Client');
+                entriesBody.innerHTML += `
+                    <tr id="entry-${entry.id}">
+                        <td>${new Date(entry.start).toLocaleDateString('de-DE')}</td>
+                        <td class="project-cell">${projectDisplay}</td>
+                        <td class="client-cell">${clientDisplay}</td>
+                        <td>${durationFormatted}</td>
+                        <td>
+                            <button onclick="editEntry(${entry.id})">Bearbeiten</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        // Zeiteintrag bearbeiten
+        function editEntry(entryId) {
+            const entry = timeEntries.find(e => e.id === entryId);
+            if (!entry) return;
+
+            const row = document.getElementById(`entry-${entryId}`);
+            const projectCell = row.querySelector('.project-cell');
+            const clientCell = row.querySelector('.client-cell');
+
+            projectCell.innerHTML = `<input type="text" class="edit-input" value="${entry.projectFreeText || (entry.projectId ? projects.find(p => p.id === entry.projectId)?.name : '')}">`;
+            clientCell.innerHTML = `<input type="text" class="edit-input" value="${entry.clientFreeText || (entry.clientId ? clients.find(c => c.id === entry.clientId)?.name : '')}">`;
+
+            const actionCell = row.querySelector('td:last-child');
+            actionCell.innerHTML = `
+                <button onclick="saveEntry(${entryId})">Speichern</button>
+                <button onclick="cancelEdit(${entryId})">Abbrechen</button>
+            `;
+        }
+
+        function saveEntry(entryId) {
+            const entry = timeEntries.find(e => e.id === entryId);
+            if (!entry) return;
+
+            const row = document.getElementById(`entry-${entryId}`);
+            const projectInput = row.querySelector('.project-cell input').value;
+            const clientInput = row.querySelector('.client-cell input').value;
+
+            entry.projectId = null;
+            entry.clientId = null;
+            entry.projectFreeText = projectInput;
+            entry.clientFreeText = clientInput;
+
+            saveData('timeEntries', timeEntries);
+            publishNostrEvent('time-entry', entry);
+            updateEntriesTable();
+        }
+
+        function cancelEdit(entryId) {
+            updateEntriesTable();
+        }
+
+        // Projekt-/Client-Verwaltung
+        function addProject() {
+            const name = document.getElementById('projectNameInput').value;
+            if (name) {
+                const project = { id: Date.now(), name };
+                projects.push(project);
+                saveData('projects', projects);
+                publishNostrEvent('project', project);
+                console.log('Neues Projekt:', project);
+                updateSelectOptions();
+                updateLists();
+                document.getElementById('projectNameInput').value = '';
+            }
+        }
+
+        function addClient() {
+            const name = document.getElementById('clientNameInput').value;
+            if (name) {
+                const client = { id: Date.now(), name };
+                clients.push(client);
+                saveData('clients', clients);
+                publishNostrEvent('client', client);
+                console.log('Neuer Client:', client);
+                updateSelectOptions();
+                updateLists();
+                document.getElementById('clientNameInput').value = '';
+            }
+        }
+
+        function deleteProject(projectId) {
+            if (!confirm('Möchtest du dieses Projekt wirklich löschen? Verknüpfte Zeiteinträge bleiben erhalten, aber als Freitext.')) return;
+            const project = projects.find(p => p.id === projectId);
+            projects = projects.filter(p => p.id !== projectId);
+            timeEntries.forEach(entry => {
+                if (entry.projectId === projectId) {
+                    entry.projectFreeText = project?.name || '';
+                    entry.projectId = null;
+                    publishNostrEvent('time-entry', entry);
+                }
+            });
+            saveData('projects', projects);
+            saveData('timeEntries', timeEntries);
+            publishNostrEvent('project-deleted', { id: projectId });
+            updateSelectOptions();
+            updateLists();
+            updateEntriesTable();
+        }
+
+        function deleteClient(clientId) {
+            if (!confirm('Möchtest du diesen Client wirklich löschen? Verknüpfte Zeiteinträge bleiben erhalten, aber als Freitext.')) return;
+            const client = clients.find(c => c.id === clientId);
+            clients = clients.filter(c => c.id !== clientId);
+            timeEntries.forEach(entry => {
+                if (entry.clientId === clientId) {
+                    entry.clientFreeText = client?.name || '';
+                    entry.clientId = null;
+                    publishNostrEvent('time-entry', entry);
+                }
+            });
+            saveData('clients', clients);
+            saveData('timeEntries', timeEntries);
+            publishNostrEvent('client-deleted', { id: clientId });
+            updateSelectOptions();
+            updateLists();
+            updateEntriesTable();
+        }
+
+        function updateSelectOptions() {
+            const projectSelect = document.getElementById('projectSelect');
+            const clientSelect = document.getElementById('clientSelect');
+            projectSelect.innerHTML = '<option value="">Kein Projekt auswählen</option>' + 
+                projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+            clientSelect.innerHTML = '<option value="">Kein Client auswählen</option>' + 
+                clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+        }
+
+        function updateLists() {
+            const projectList = document.getElementById('projectList');
+            const clientList = document.getElementById('clientList');
+            projectList.innerHTML = projects.map(p => `<li>${p.name} <button class="delete" onclick="deleteProject(${p.id})">Löschen</button></li>`).join('');
+            clientList.innerHTML = clients.map(c => `<li>${c.name} <button class="delete" onclick="deleteClient(${c.id})">Löschen</button></li>`).join('');
+        }
+
+        // Berichte
+        function setTodayDate() {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('reportDate').value = today;
+        }
+
+        function generateReport() {
+            const filter = document.getElementById('reportFilter').value;
+            const dateInput = document.getElementById('reportDate').value;
+            if (!dateInput) {
+                alert('Bitte ein Datum auswählen.');
+                return;
+            }
+
+            const selectedDate = new Date(dateInput);
+            selectedDate.setHours(0, 0, 0, 0);
+            let startDate, endDate;
+
+            if (filter === 'day') {
+                startDate = new Date(selectedDate);
+                endDate = new Date(selectedDate);
+                endDate.setDate(endDate.getDate() + 1);
+            } else if (filter === 'week') {
+                startDate = new Date(selectedDate);
+                startDate.setDate(startDate.getDate() - startDate.getDay() + 1);
+                endDate = new Date(startDate);
+                endDate.setDate(endDate.getDate() + 7);
+            } else if (filter === 'month') {
+                startDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+                endDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 1);
+            }
+
+            console.log('Filter:', filter, 'Start:', startDate, 'End:', endDate);
+            console.log('Alle timeEntries:', timeEntries);
+
+            const filteredEntries = timeEntries.filter(entry => {
+                const entryDate = new Date(entry.start);
+                entryDate.setHours(0, 0, 0, 0);
+                return entryDate >= startDate && entryDate < endDate;
+            });
+
+            console.log('Gefilterte Einträge:', filteredEntries);
+
+            const reportBody = document.getElementById('reportBody');
+            reportBody.innerHTML = '';
+            let totalDuration = 0;
+
+            if (filteredEntries.length === 0) {
+                reportBody.innerHTML = '<tr><td colspan="4">Keine Einträge für den Zeitraum gefunden.</td></tr>';
+            } else {
+                filteredEntries.forEach(entry => {
+                    const project = entry.projectId ? projects.find(p => p.id === entry.projectId) : null;
+                    const client = entry.clientId ? clients.find(c => c.id === entry.clientId) : null;
+                    const durationFormatted = formatDuration(entry.duration);
+                    const projectDisplay = entry.projectFreeText || (project ? project.name : 'Kein Projekt');
+                    const clientDisplay = entry.clientFreeText || (client ? client.name : 'Kein Client');
+                    totalDuration += entry.duration;
+                    reportBody.innerHTML += `
+                        <tr>
+                            <td>${new Date(entry.start).toLocaleDateString('de-DE')}</td>
+                            <td>${projectDisplay}</td>
+                            <td>${clientDisplay}</td>
+                            <td>${durationFormatted}</td>
+                        </tr>
+                    `;
+                });
+            }
+
+            document.getElementById('totalHours').textContent = formatDuration(totalDuration);
+            document.getElementById('reportTable').classList.remove('hidden');
+        }
+
+        function exportToPDF() {
+            const reportBody = document.getElementById('reportBody');
+            if (!reportBody.hasChildNodes() || reportBody.querySelector('tr td').textContent.includes('Keine Einträge')) {
+                alert('Bitte zuerst einen Bericht mit Einträgen generieren.');
+                return;
+            }
+
+            const doc = new jsPDF();
+            doc.text('Zeiterfassungs-Bericht', 10, 10);
+            doc.autoTable({
+                head: [['Datum', 'Projekt', 'Client', 'Dauer']],
+                body: Array.from(reportBody.querySelectorAll('tr')).map(row => 
+                    Array.from(row.cells).map(cell => cell.textContent)
+                ),
+                startY: 20
+            });
+            doc.text(`Gesamtstunden: ${document.getElementById('totalHours').textContent}`, 10, doc.lastAutoTable.finalY + 10);
+            doc.save('zeiterfassung_bericht.pdf');
+        }
+
+        // Bitcoin Lightning Zahlung
+        async function makeLightningPayment() {
+            try {
+                if (!window.webln) {
+                    throw new Error('Keine Lightning-Wallet gefunden. Bitte installiere z.B. Alby und aktiviere WebLN.');
+                }
+                await window.webln.enable();
+                document.getElementById('paymentError').textContent = 'Hinweis: Für echte Lightning-Zahlungen benötigst du eine gültige Rechnung von einem Server. Kontaktiere den Entwickler für eine Integration.';
+                throw new Error('Testmodus: Keine gültige Rechnung verfügbar.');
+            } catch (err) {
+                document.getElementById('paymentError').textContent = err.message;
+            }
+        }
+
+        // Daten speichern
+        function saveData(key, data) {
+            localStorage.setItem(key, JSON.stringify(data));
+        }
+    </script>
+</body>
+</html>
