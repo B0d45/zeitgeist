@@ -142,6 +142,8 @@ details summary:hover {
     word-break: break-word;
     overflow-wrap: break-word;
     box-sizing: border-box;
+      overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 #relaySelect {
@@ -151,10 +153,106 @@ details summary:hover {
   box-sizing: border-box;
 }
 
+.progress-bar-container {
+  background: #e0e0e0;
+  border-radius: 30px;
+  overflow: hidden;
+  height: 20px;
+  margin-bottom: 20px;
+}
+
+.progress-bar {
+  height: 100%;
+  background: #4b7bec;
+  width: 0%;
+  transition: width 0.4s ease;
+}
+
+
+.timeline {
+  position: relative;
+  margin: 20px 0;
+  padding-left: 30px;
+  border-left: 2px solid #4b7bec;
+}
+
+.timeline li {
+  position: relative;
+  margin-bottom: 20px;
+  padding-left: 12px;
+  background: #f0f4f8;
+  border-radius: 6px;
+  padding: 10px 15px;
+}
+
+.timeline li::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  left: -10px;
+  width: 12px;
+  height: 12px;
+  background: #4b7bec;
+  border-radius: 50%;
+  border: 2px solid white;
+}
+
+
+.two-columns {
+  display: flex;
+  gap: 30px;
+  flex-wrap: wrap;
+}
+
+.project-column,
+.client-column {
+  flex: 1 1 300px;
+  min-width: 250px;
+}
+
+.project-column ul,
+.client-column ul {
+  margin-top: 10px;
+  padding-left: 20px;
+}
+
+
 
     </style>
 </head>
 <body>
+    
+
+<div id="tabMenu" class="hidden" style="background:#eee; padding:10px; text-align:center;">
+    <button onclick="switchTab('timeTrackingTab')">⏱️ Zeiterfassung</button>
+    <button onclick="switchTab('todoTab')">✅ To-do Liste</button>
+</div>
+
+
+<div id="todoTab" class="hidden">
+  <div class="container">
+    <h1>To-do Liste</h1>
+
+<form onsubmit="addTodo(); return false;" style="margin-bottom: 20px;">
+  <input type="text" id="todoTitleInput" placeholder="Neue Aufgabe" required>
+  <input type="date" id="todoDueDateInput">
+  <select id="todoClientSelect">
+    <option value="">🔗 Kein Klient</option>
+  </select>
+  <button type="submit">➕ Hinzufügen</button>
+</form>
+
+<!-- Fortschrittsanzeige -->
+    <div class="progress-bar-container">
+      <div class="progress-bar" id="todoProgress"></div>
+    </div>
+
+    <ul id="todoList" class="timeline"></ul>
+    </div>
+</div>
+
+<div id="timeTrackingTab">
+
     <div class="container">
         <h1>Zeiterfassung</h1>
 
@@ -179,6 +277,12 @@ details summary:hover {
             <p class="error" id="loginError"></p>
         </div>
 
+
+
+
+
+
+
         <!-- Timer Section -->
         <div class="timer-section hidden" id="timerSection">
           
@@ -193,7 +297,35 @@ details summary:hover {
             <input type="text" id="clientFreeText" placeholder="Klient (optional)" class="hidden">
             <button id="startButton" onclick="startTimer()">Start</button>
             <button id="stopButton" onclick="stopTimer()" disabled>Stop</button>
+            <button onclick="toggleProjectClientPanel()">📂 Projekte & Klienten</button>
         </div>
+        
+        
+        
+        
+<div id="projectClientPanel" class="hidden" style="margin-top: 10px;">
+  <div class="two-columns">
+    <div class="project-column">
+      <h3>Projekte</h3>
+      <input type="text" id="projectNameInput" placeholder="Projektname">
+      <button onclick="addProject()">Projekt hinzufügen</button>
+      <ul id="projectList"></ul>
+    </div>
+
+    <div class="client-column">
+      <h3>Klienten</h3>
+      <input type="text" id="clientNameInput" placeholder="Clientname">
+      <button onclick="addClient()">Klient hinzufügen</button>
+      <ul id="clientList"></ul>
+    </div>
+  </div>
+</div>
+
+
+        
+        
+        
+        
 
         <!-- Entries Section -->
 <div class="entries-section hidden" id="entriesSection">
@@ -278,7 +410,7 @@ details summary:hover {
 
 
 <section class="hidden" id="contactsSection">
-    
+    <h2>Kontakte</h2>
       <div style="margin-bottom: 1rem;">
   <input type="text" id="contactSearchInput" placeholder="🔍 Kontakt suchen..." oninput="renderFilteredContacts()" style="padding:5px; width: 200px;">
   <label style="margin-left: 10px;">
@@ -325,7 +457,7 @@ details summary:hover {
         </div>
     </div>
     
-    
+</div>
 
     
 <button id="publishContactsButton" class="hidden" onclick="publishContactsToPrivateRelay(JSON.parse(localStorage.getItem('myContacts')))">
@@ -366,6 +498,8 @@ details summary:hover {
             updateEntriesTable();
             console.log('Initialisierte timeEntries:', timeEntries);
             toggleFreeTextFields();
+            renderTodos();
+
             
                 // Lightning-Adresse prüfen und UI anpassen
     const savedAddress = localStorage.getItem('lightningAddress');
@@ -384,6 +518,12 @@ details summary:hover {
         });
 
 
+function switchTab(tabName) {
+    document.getElementById('timeTrackingTab').classList.add('hidden');
+    document.getElementById('todoTab').classList.add('hidden');
+
+    document.getElementById(tabName).classList.remove('hidden');
+}
 
 
 
@@ -393,6 +533,10 @@ function safeParseInt(val) {
 }
 
 
+function toggleProjectClientPanel() {
+  const panel = document.getElementById('projectClientPanel');
+  panel.classList.toggle('hidden');
+}
 
 
 
@@ -534,24 +678,56 @@ function loginWithAlby() {
             });
         }
 
-    function updateSelectOptions() {
-    const projectSelect = document.getElementById('projectSelect');
-    const clientSelect = document.getElementById('clientSelect');
+   function updateSelectOptions() {
+  const projectSelect = document.getElementById('projectSelect');
+  const clientSelect = document.getElementById('clientSelect');
+  const reportClientFilter = document.getElementById('reportClientFilter');
+  const reportProjectFilter = document.getElementById('reportProjectFilter');
+  const todoClientSelect = document.getElementById('todoClientSelect');
 
-    // Projekte unverändert
-    projectSelect.innerHTML = '<option value="">Kein Projekt auswählen</option>' +
-        projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  // Projekte
+  projectSelect.innerHTML = '<option value="">Kein Projekt auswählen</option>' +
+      projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
 
-    // Clients aus localStorage laden
-    const clients = JSON.parse(localStorage.getItem('clients')) || [];
-    clientSelect.innerHTML = '<option value="">Kein Klient auswählen</option>';
-    clients.forEach(client => {
-        const option = document.createElement('option');
-        option.value = client.id; // numerische ID
-
-        option.textContent = client.name;
-        clientSelect.appendChild(option);
+  if (reportProjectFilter) {
+    reportProjectFilter.innerHTML = '<option value="all">Alle Projekte</option>';
+    projects.forEach(project => {
+      const option = document.createElement('option');
+      option.value = project.id;
+      option.textContent = project.name;
+      reportProjectFilter.appendChild(option);
     });
+  }
+
+  // Clients
+  const clients = JSON.parse(localStorage.getItem('clients')) || [];
+  clientSelect.innerHTML = '<option value="">Kein Klient auswählen</option>';
+  clients.forEach(client => {
+    const option = document.createElement('option');
+    option.value = client.id;
+    option.textContent = client.name;
+    clientSelect.appendChild(option);
+  });
+
+  if (reportClientFilter) {
+    reportClientFilter.innerHTML = '<option value="all">Alle Klienten</option>';
+    clients.forEach(client => {
+      const option = document.createElement('option');
+      option.value = client.id;
+      option.textContent = client.name;
+      reportClientFilter.appendChild(option);
+    });
+  }
+
+  if (todoClientSelect) {
+    todoClientSelect.innerHTML = '<option value="">🔗 Kein Klient</option>';
+    clients.forEach(client => {
+      const option = document.createElement('option');
+      option.value = client.id;
+      option.textContent = client.name;
+      todoClientSelect.appendChild(option);
+    });
+  }
 }
 
 
@@ -733,7 +909,13 @@ function deleteSelectedEntries() {
     saveData('timeEntries', timeEntries);
     publishNostrEvent('time-entry', entry);
     updateEntriesTable();
+    
+    const projectSelect = row.querySelector('.project-cell select.project-select');
+const newProjectId = projectSelect ? parseInt(projectSelect.value) : null;
+entry.projectId = newProjectId;
+
 }
+
 
 
 
@@ -835,6 +1017,7 @@ function deleteSelectedEntries() {
 
 
        function toggleSections() {
+          
     document.getElementById('loginSection').classList.toggle('hidden', isLoggedIn);
     document.getElementById('timerSection').classList.toggle('hidden', !isLoggedIn);
     document.getElementById('entriesSection').classList.toggle('hidden', !isLoggedIn);
@@ -842,6 +1025,9 @@ function deleteSelectedEntries() {
     document.getElementById('reportSection').classList.toggle('hidden', !isLoggedIn);
     document.getElementById('donationSection').classList.toggle('hidden', !isLoggedIn);
     document.getElementById('contactsSection').classList.toggle('hidden', !isLoggedIn);
+   document.getElementById('tabMenu').classList.toggle('hidden', !isLoggedIn);
+
+
 }
 
 
@@ -934,95 +1120,85 @@ function deleteSelectedEntries() {
             document.getElementById('reportDate').value = today;
         }
 
-       function generateReport() {
-            const filter = document.getElementById('reportFilter').value;
-            const dateInput = document.getElementById('reportDate').value;
+      function generateReport() {
+  const filter = document.getElementById('reportFilter').value;
+  const dateInput = document.getElementById('reportDate').value;
 
-            // NEU: Werte der Projekt- und Client-Filter abrufen
-            const selectedProjectFilterId = document.getElementById('reportProjectFilter').value;
-            const selectedClientFilterId = document.getElementById('reportClientFilter').value;
+  const selectedProjectFilterId = document.getElementById('reportProjectFilter').value;
+  const selectedClientFilterId = document.getElementById('reportClientFilter').value;
 
-            if (!dateInput) {
-                // Bitte beachten: alert() solltest du später durch ein eigenes Modal ersetzen!
-                alert('Bitte ein Datum auswählen.');
-                return;
-            }
-            const selectedDate = new Date(dateInput);
-            selectedDate.setHours(0, 0, 0, 0);
-            let startDate, endDate;
-            if (filter === 'day') {
-                startDate = new Date(selectedDate);
-                endDate = new Date(selectedDate);
-                endDate.setDate(endDate.getDate() + 1);
-            } else if (filter === 'week') {
-                startDate = new Date(selectedDate);
-                startDate.setDate(startDate.getDate() - startDate.getDay() + 1);
-                endDate = new Date(startDate);
-                endDate.setDate(endDate.getDate() + 7);
-            } else if (filter === 'month') {
-                startDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
-                endDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 1);
-            }
+  if (!dateInput) {
+    alert('Bitte ein Datum auswählen.');
+    return;
+  }
 
-            // Anpassung der Filter-Logik:
-            const filteredEntries = timeEntries.filter(entry => {
-                const entryDate = new Date(entry.start);
-                entryDate.setHours(0, 0, 0, 0);
+  const selectedDate = new Date(dateInput);
+  selectedDate.setHours(0, 0, 0, 0);
+  let startDate, endDate;
 
-                // 1. Datum filter anwenden
-                const dateMatch = entryDate >= startDate && entryDate < endDate;
+  if (filter === 'day') {
+    startDate = new Date(selectedDate);
+    endDate = new Date(selectedDate);
+    endDate.setDate(endDate.getDate() + 1);
+  } else if (filter === 'week') {
+    startDate = new Date(selectedDate);
+    startDate.setDate(startDate.getDate() - startDate.getDay() + 1);
+    endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + 7);
+  } else if (filter === 'month') {
+    startDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+    endDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 1);
+  }
 
-                // 2. Projektfilter anwenden
-                let projectMatch = true;
-                if (selectedProjectFilterId !== 'all') {
-                    // Überprüfe, ob der Eintrag eine Projekt-ID hat UND ob diese mit der ausgewählten ID übereinstimmt
-                    // parseInt() ist wichtig, da die Werte aus dem Select-Feld Strings sind, die IDs aber Zahlen sind
-                    projectMatch = (entry.projectId === parseInt(selectedProjectFilterId));
-                }
+  const filteredEntries = timeEntries.filter(entry => {
+    if (!entry.start) return false;
 
-               // 3. Clientfilter
-let clientMatch = true;
-if (selectedClientFilterId !== 'all') {
-    clientMatch = (entry.clientPubkey === selectedClientFilterId);
+    const entryDate = new Date(entry.start);
+    entryDate.setHours(0, 0, 0, 0);
+
+    const dateMatch = entryDate >= startDate && entryDate < endDate;
+    const projectMatch =
+      selectedProjectFilterId === 'all' ||
+      String(entry.projectId || '') === selectedProjectFilterId;
+
+    const clientMatch =
+      selectedClientFilterId === 'all' ||
+      String(entry.clientId || '') === selectedClientFilterId;
+
+    return dateMatch && projectMatch && clientMatch;
+  });
+
+  filteredEntries.sort((a, b) => b.start - a.start);
+
+  const reportBody = document.getElementById('reportBody');
+  reportBody.innerHTML = '';
+  let totalDuration = 0;
+
+  if (filteredEntries.length === 0) {
+    reportBody.innerHTML = '<tr><td colspan="4">Keine Einträge für den Zeitraum und die ausgewählten Filter gefunden.</td></tr>';
+  } else {
+    filteredEntries.forEach(entry => {
+      const projectDisplay = entry.projectName || entry.projectFreeText || 'Kein Projekt';
+      const clientDisplay = entry.clientName || entry.clientFreeText || 'Kein Client';
+      const durationFormatted = formatDuration(entry.duration);
+
+      totalDuration += entry.duration;
+
+      reportBody.innerHTML += `
+        <tr>
+          <td>${new Date(entry.start).toLocaleDateString('de-DE')}</td>
+          <td>${projectDisplay}</td>
+          <td>${clientDisplay}</td>
+          <td>${durationFormatted}</td>
+        </tr>
+      `;
+    });
+  }
+
+  document.getElementById('totalHours').textContent = formatDuration(totalDuration);
+  document.getElementById('reportTable').classList.remove('hidden');
 }
 
-
-                // Ein Eintrag muss alle Filter-Bedingungen erfüllen
-                return dateMatch && projectMatch && clientMatch;
-            });
-            
-            filteredEntries.sort((a, b) => b.start - a.start);
-
-            const reportBody = document.getElementById('reportBody');
-            reportBody.innerHTML = '';
-            let totalDuration = 0;
-
-            if (filteredEntries.length === 0) {
-                reportBody.innerHTML = '<tr><td colspan="4">Keine Einträge für den Zeitraum und die ausgewählten Filter gefunden.</td></tr>';
-            } else {
-                filteredEntries.forEach(entry => {
-    // Hier nutzen wir die Namen, die beim Stoppen der Zeit gespeichert wurden
-    const projectDisplay = entry.projectName || entry.projectFreeText || 'Kein Projekt';
-    const clientDisplay = entry.clientName || entry.clientFreeText || 'Kein Client';
-    const durationFormatted = formatDuration(entry.duration);
-
-    totalDuration += entry.duration;
-
-    reportBody.innerHTML += `
-        <tr>
-            <td>${new Date(entry.start).toLocaleDateString('de-DE')}</td>
-            <td>${projectDisplay}</td>
-            <td>${clientDisplay}</td>
-            <td>${durationFormatted}</td>
-        </tr>
-    `;
-});
-
-            }
-
-            document.getElementById('totalHours').textContent = formatDuration(totalDuration);
-            document.getElementById('reportTable').classList.remove('hidden');
-        }
 
 
 
@@ -1067,10 +1243,12 @@ async function processFetchedEvents(events) {
     const latestTimeEntries = new Map();
     const latestProjects = new Map();
     const latestClients = new Map();
+    const latestTodos = new Map();
 
     const deletedProjectIds = new Set();
     const deletedClientIds = new Set();
     const deletedTimeEntryIds = new Set();
+    const deletedTodoIds = new Set();
 
     for (const event of events) {
         const tag = event.tags.find(tag => tag[0] === 't');
@@ -1103,6 +1281,10 @@ async function processFetchedEvents(events) {
                 deletedTimeEntryIds.add(data.id);
                 latestTimeEntries.delete(data.id);
                 break;
+            case 'todo-deleted':
+                deletedTodoIds.add(data.id);
+                latestTodos.delete(data.id);
+                break;
             case 'project': {
                 const existing = latestProjects.get(data.id);
                 if (!existing || event.created_at > existing._created_at) {
@@ -1127,9 +1309,18 @@ async function processFetchedEvents(events) {
                 }
                 break;
             }
+            case 'todo': {
+                const existing = latestTodos.get(data.id);
+                if (!existing || event.created_at > existing._created_at) {
+                    data._created_at = event.created_at;
+                    latestTodos.set(data.id, data);
+                }
+                break;
+            }
         }
     }
 
+    // FILTER: nur gültige Objekte übernehmen
     timeEntries = Array.from(latestTimeEntries.values()).filter(e =>
         !deletedTimeEntryIds.has(e.id) &&
         (!e.projectId || !deletedProjectIds.has(e.projectId)) &&
@@ -1137,24 +1328,34 @@ async function processFetchedEvents(events) {
     );
 
     projects = Array.from(latestProjects.values()).filter(p => !deletedProjectIds.has(p.id));
-    clients = Array.from(latestClients.values()).filter(c => !deletedClientIds.has(c.id));
+    clients  = Array.from(latestClients.values()).filter(c => !deletedClientIds.has(c.id));
+    todos    = Array.from(latestTodos.values()).filter(t => !deletedTodoIds.has(t.id));
 
+    // Speicher leeren & neu schreiben
     localStorage.removeItem('projects');
     localStorage.removeItem('clients');
     localStorage.removeItem('timeEntries');
+    localStorage.removeItem('todos');
 
-    saveData('timeEntries', timeEntries);
     saveData('projects', projects);
     saveData('clients', clients);
+    saveData('timeEntries', timeEntries);
+    saveData('todos', todos);
 
+    // UI aktualisieren
     updateSelectOptions();
     updateLists();
     updateEntriesTable();
     updateReportFilterOptions();
+    renderTodos();
 
     window.dispatchEvent(new Event('data-loaded'));
 
-    console.log(`✅ Events verarbeitet: Projekte ${projects.length}, Clients ${clients.length}, Zeit-Einträge ${timeEntries.length}`);
+    console.log(`✅ Events verarbeitet:
+        Projekte: ${projects.length},
+        Clients: ${clients.length},
+        Zeiteinträge: ${timeEntries.length},
+        Todos: ${todos.length}`);
 }
 
 
@@ -1164,28 +1365,47 @@ async function processFetchedEvents(events) {
 
 
 
- async function publishNostrEvent(type, data) {
-    if (!publicKey || !relays || relays.length === 0 || !window.nostr) {
-        console.warn('⚠️ publishNostrEvent ausgelassen – unvollständige Umgebung.');
-        return;
-    }
+ // Hilfsfunktion, um zu erkennen, ob ein Relay ein privates ist
+function isPrivateRelay(url) {
+  return url.includes('.onion') || url.includes('mein-privat-relay.com'); // <-- ggf. weitere Kriterien ergänzen
+}
 
-    const event = {
-        kind: 30000,
-        pubkey: publicKey,
-        created_at: Math.floor(Date.now() / 1000),
-        tags: [['t', type]],
-        content: JSON.stringify(data)
-    };
+async function publishNostrEvent(type, data) {
+  if (!publicKey || !Array.isArray(relays) || relays.length === 0 || !window.nostr) {
+    console.warn('⚠️ publishNostrEvent übersprungen – unvollständige Umgebung.');
+    return;
+  }
 
-    try {
-        const signed = await window.nostr.signEvent(event);
-        await pool.publish(relays, signed);
-        console.log(`✅ Event "${type}" veröffentlicht:`, signed);
-    } catch (e) {
-        console.warn('❌ publishNostrEvent fehlgeschlagen:', e.message);
-        document.getElementById('loginError').textContent = 'Fehler beim Veröffentlichen des Nostr-Events.';
-    }
+  // Standardmäßig: alle gewählten Relays
+  let relaysToSend = relays;
+
+  // Prüfe: Sind ALLE verbundenen Relays private?
+  const onlyPrivate = relays.every(isPrivateRelay);
+
+  if (onlyPrivate) {
+    // Sende ausschließlich an die privaten Relays
+    relaysToSend = relays.filter(isPrivateRelay);
+    console.log('🔐 Nur mit privaten Relays verbunden – sende ausschließlich dorthin:', relaysToSend);
+  } else {
+    console.log('🌐 Öffentliche Relays erkannt – sende an alle aktiven Relays:', relaysToSend);
+  }
+
+  const event = {
+    kind: 30000,
+    pubkey: publicKey,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [['t', type]],
+    content: JSON.stringify(data)
+  };
+
+  try {
+    const signed = await window.nostr.signEvent(event);
+    await pool.publish(relaysToSend, signed);
+    console.log(`✅ Event "${type}" erfolgreich veröffentlicht an:`, relaysToSend);
+  } catch (e) {
+    console.warn('❌ publishNostrEvent fehlgeschlagen:', e.message);
+    document.getElementById('loginError').textContent = 'Fehler beim Veröffentlichen des Nostr-Events.';
+  }
 }
 
 
@@ -1471,54 +1691,126 @@ async function loadMyContactsAndProfiles() {
 
 
 
+// Liste der öffentlichen Read-Only-Relays
+const publicReadOnlyRelays = [
+  "wss://nos.lol",
+  "wss://relay.nostr.band",
+  "wss://relay.snort.social",
+  "wss://relay.damus.io",
+  "wss://nostr.wine",
+  "wss://cache2.primal.net/v1",
+  "wss://nostr.fmt.wiz.biz"
+];
+
+// Anzahl Kontakte pro Einzelabfrage
+const chunkSize = 200;
 
 async function loadProfilesForContacts(nostrContacts) {
-    if (!Array.isArray(nostrContacts) || nostrContacts.length === 0) {
-        console.warn('⚠️ Keine Kontakte übergeben.');
-        return;
-    }
+  if (!Array.isArray(nostrContacts) || nostrContacts.length === 0) {
+    console.warn('⚠️ Keine Kontakte übergeben.');
+    return;
+  }
 
-    try {
-        console.log(`🔍 Lade Profile für ${nostrContacts.length} Kontakte...`);
+  const profileMap = new Map();
+  const mergedRelays = publicReadOnlyRelays; // Nur lesezweck!
 
-        const profileEvents = await pool.list(relays, [
-            { kinds: [0], authors: nostrContacts }
-        ]);
+  try {
+    console.log(`🔍 Lade Profile für ${nostrContacts.length} Kontakte von ${mergedRelays.length} Relays...`);
+    showStatus('⏳ Lade Nostr-Profile...');
 
-        const profileMap = new Map();
+    const allProfileEvents = [];
 
-        for (const event of profileEvents) {
-            const pubkey = event.pubkey;
-            let profile = null;
+    // Alle Kontakte in Blöcke (Chunks) z. B. 200er aufteilen
+    for (let i = 0; i < nostrContacts.length; i += chunkSize) {
+      const chunk = nostrContacts.slice(i, i + chunkSize);
 
-            try {
-                profile = JSON.parse(event.content);
-            } catch (e) {
-                console.warn(`❌ Ungültiges JSON für ${pubkey}:`, event.content);
-                continue;
-            }
+      // Für jedes Relay → separat holen
+      const perRelayFetches = mergedRelays.map(async (relay) => {
+        try {
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 8000));
+          const fetchPromise = pool.list([relay], [{ kinds: [0], authors: chunk }]);
 
-            const existing = profileMap.get(pubkey);
-            if (!existing || event.created_at > existing.created_at) {
-                profileMap.set(pubkey, { ...profile, created_at: event.created_at });
-            }
+          const events = await Promise.race([fetchPromise, timeoutPromise]);
+          console.log(`✓ ${relay}: ${events.length} Profile geladen (für Block ab ${i})`);
+
+          // Annotiere jedes Event mit dem Relay (optional fürs Logging)
+          for (const ev of events) {
+            ev._relay = relay;
+          }
+
+          return events;
+        } catch (err) {
+          console.warn(`⚠️ ${relay}: Fehler bei Chunk ${i}/${nostrContacts.length}: ${err.message}`);
+          return [];
         }
+      });
 
-        // Speichern für Filterung
-        allContacts = nostrContacts.map(pubkey => ({
-            pubkey,
-            profile: profileMap.get(pubkey) || null
-        }));
-
-        renderFilteredContacts(); // UI aktualisieren
-
-        console.log(`✅ ${profileMap.size} Profile geladen und dargestellt.`);
-
-    } catch (err) {
-        console.error('❌ Fehler beim Laden der Profile (Batch):', err);
-        showStatus('⚠️ Fehler beim Laden der Profile.');
+      // Warte auf alle Relays für diesen Chunk
+      const chunkResults = await Promise.all(perRelayFetches);
+      const flatEvents = chunkResults.flat();
+      allProfileEvents.push(...flatEvents);
     }
+
+    console.log(`🎯 Gesamt erhaltene Events: ${allProfileEvents.length}`);
+
+    // Verarbeite alle zusammengetragenen Events
+    for (const event of allProfileEvents) {
+      const pubkey = event.pubkey;
+      let profile;
+
+      try {
+        profile = JSON.parse(event.content);
+      } catch (e) {
+        continue;
+      }
+
+      // Nützliche Felder prüfen
+      const hasUseful = profile?.name || profile?.display_name || profile?.picture || profile?.lud16 || profile?.lnurl || profile?.nip05;
+      if (!hasUseful) continue;
+
+      // Bewertungsfunktion
+      const getScore = (p) => [
+        p.display_name,
+        p.name,
+        p.picture,
+        p.lud16,
+        p.lnurl,
+        p.nip05,
+        p.about
+      ].filter(Boolean).length;
+
+      const newScore = getScore(profile);
+
+      const existing = profileMap.get(pubkey);
+      if (!existing || event.created_at > existing._created_at && newScore >= existing._score) {
+        profileMap.set(pubkey, {
+          ...profile,
+          _created_at: event.created_at,
+          _score: newScore,
+          _relay: event._relay || null
+        });
+      }
+    }
+
+    // Kontaktliste fürs UI zusammenbauen
+    allContacts = nostrContacts.map(pubkey => ({
+      pubkey,
+      profile: profileMap.get(pubkey) || null
+    }));
+
+    renderFilteredContacts();
+
+    const validCount = allContacts.filter(c => c.profile).length;
+    console.log(`✅ ${validCount} gültige Profile geladen`);
+    showStatus(`✅ ${validCount} Kontakte mit Profil geladen ✅`);
+  } catch (err) {
+    console.error('❌ Fehler beim Laden der Profile:', err);
+    showStatus('⚠️ Profil-Ladevorgang fehlgeschlagen');
+  }
 }
+
+
+
 
 
 
@@ -1843,11 +2135,101 @@ async function checkContactsOnPrivateRelay() {
 
 
 
+
+
+
+// hier startet todoTab
+let todos = JSON.parse(localStorage.getItem('todos') || '[]');
+
+function addTodo() {
+  const title = document.getElementById('todoTitleInput').value.trim();
+  const dueDate = document.getElementById('todoDueDateInput').value;
+  const clientId = parseInt(document.getElementById('todoClientSelect').value) || null;
+
+  if (!title) return;
+
+  const todo = {
+    id: Date.now(),
+    title,
+    dueDate,
+    done: false,
+    clientId
+  };
+
+  todos.push(todo);
+  saveData('todos', todos);
+  publishNostrEvent('todo', todo);
+  renderTodos();
+
+  document.getElementById('todoTitleInput').value = '';
+  document.getElementById('todoDueDateInput').value = '';
+  document.getElementById('todoClientSelect').value = '';
+}
+
+
+function renderTodos() {
+  const list = document.getElementById('todoList');
+  list.innerHTML = '';
+
+  if (todos.length === 0) {
+    list.innerHTML = '<li>Keine Aufgaben</li>';
+    return;
+  }
+
+  todos.forEach(todo => {
+    const client = clients.find(c => c.id === todo.clientId);
+    const clientLabel = client ? ` – <em>${client.name}</em>` : '';
+    const li = document.createElement('li');
+
+    li.innerHTML = `
+      <input type="checkbox" ${todo.done ? 'checked' : ''} onchange="toggleTodoDone(${todo.id})">
+      <span style="text-decoration:${todo.done ? 'line-through' : 'none'}">${todo.title}</span>
+      ${todo.dueDate ? `<small> (fällig: ${todo.dueDate})</small>` : ''}
+      ${clientLabel}
+      <button onclick="deleteTodo(${todo.id})">🗑️</button>
+    `;
+
+    list.appendChild(li);
+  });
+  
+  updateProgressBar();
+}
+
+
+function toggleTodoDone(id) {
+    const todo = todos.find(t => t.id === id);
+    if (todo) {
+        todo.done = !todo.done;
+        saveData('todos', todos);
+        publishNostrEvent('todo', todo);
+        renderTodos();
+    }
+}
+
+function deleteTodo(id) {
+    if (!confirm('Wirklich löschen?')) return;
+    todos = todos.filter(t => t.id !== id);
+    saveData('todos', todos);
+    publishNostrEvent('todo-deleted', { id });
+    renderTodos();
+}
+
+
+function updateProgressBar() {
+  const done = todos.filter(t => t.done).length;
+  const total = todos.length || 1;
+  const percent = (done / total) * 100;
+  document.getElementById('todoProgress').style.width = percent + '%';
+}
+
+
+
+
     </script>
     
-   <button id="checkPrivateRelayContactsButton" onclick="checkContactsOnPrivateRelay()">
+<!--<button id="checkPrivateRelayContactsButton" onclick="checkContactsOnPrivateRelay()">
     Kontakte prüfen
-</button> 
+</button> -->
 
     
 </body>
