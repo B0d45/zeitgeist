@@ -12,6 +12,7 @@
     <!-- jsPDF + autoTable -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/5.0.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
 
    
 
@@ -137,7 +138,19 @@ details summary:hover {
     background: #f9f9f9;
     border: 1px solid #ccc;
     border-radius: 8px;
+    max-width: 100%;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    box-sizing: border-box;
 }
+
+#relaySelect {
+  max-width: 100%;
+  width: 100%;
+  overflow-x: auto;
+  box-sizing: border-box;
+}
+
 
     </style>
 </head>
@@ -152,12 +165,13 @@ details summary:hover {
             <input type="text" id="customRelayInput" placeholder="Eigenes Relay (z.B. wss://mein-relay.com oder ws://abcdefg.onion)">
             <button onclick="addCustomRelay()">Relay hinzufügen</button>
             <select id="relaySelect" multiple>
+                <option value="wss://nos.lol">wss://nos.lol</option>
+                <option value="wss://relay.nostr.band">wss://relay.nostr.band</option>
                 <option value="wss://relay.damus.io">wss://relay.damus.io</option>
                 <option value="wss://nostr.wine">wss://nostr.wine</option>
                 <option value="wss://relay.snort.social">wss://relay.snort.social</option>
                 <option value="wss://nostr.fmt.wiz.biz">wss://nostr.fmt.wiz.biz</option>
                 <option value="ws://mknqnp5rmmtw7ogxjahpfawfucwltixsvi26rf2urenpvkioawmp3qyd.onion">ws://mknqnp5rmmtw7ogxjahpfawfucwltixsvi26rf2urenpvkioawmp3qyd.onion</option>
-                
             </select>
             <button onclick="loginWithAlby()">Mit Alby einloggen</button>
             <button onclick="generateNostrKeys()">Neue Schlüssel generieren</button>
@@ -182,21 +196,35 @@ details summary:hover {
         </div>
 
         <!-- Entries Section -->
-        <div class="entries-section hidden" id="entriesSection">
-          
-            <table id="entriesTable">
-                <thead>
-                    <tr>
-                        <th>Datum</th>
-                        <th>Projekt</th>
-                        <th>Klient</th>
-                        <th>Dauer</th>
-                        <th>Aktion</th>
-                    </tr>
-                </thead>
-                <tbody id="entriesBody"></tbody>
-            </table>
-        </div>
+<div class="entries-section hidden" id="entriesSection">
+
+    <!-- Bulk action controls oben -->
+    <div style="margin-bottom: 10px;">
+        <button onclick="toggleAllCheckboxes()">Alle auswählen/abwählen</button>
+        <button onclick="deleteSelectedEntries()">Ausgewählte löschen</button>
+    </div>
+
+    <table id="entriesTable">
+        <thead>
+            <tr>
+                <th><input type="checkbox" id="selectAllCheckbox" onclick="toggleAllCheckboxes()"></th>
+                <th>Datum</th>
+                <th>Projekt</th>
+                <th>Klient</th>
+                <th>Dauer</th>
+                <th>Aktion</th>
+            </tr>
+        </thead>
+        <tbody id="entriesBody"></tbody>
+    </table>
+
+    <!-- Bulk action controls unten -->
+    <div style="margin-top: 10px;">
+        <button onclick="toggleAllCheckboxes()">Alle auswählen/abwählen</button>
+        <button onclick="deleteSelectedEntries()">Ausgewählte löschen</button>
+    </div>
+</div>
+
 
         <!-- Project/Client Management -->
         <div class="project-section hidden" id="projectSection">
@@ -248,13 +276,23 @@ details summary:hover {
 
 
 
-<section id="contactsSection">
+
+<section class="hidden" id="contactsSection">
+    
+      <div style="margin-bottom: 1rem;">
+  <input type="text" id="contactSearchInput" placeholder="🔍 Kontakt suchen..." oninput="renderFilteredContacts()" style="padding:5px; width: 200px;">
+  <label style="margin-left: 10px;">
+    <input type="checkbox" id="filterWithLightning" onclick="renderFilteredContacts()">
+    Nur mit „Danke senden“-Button
+  </label>
+</div>
+    
     <details>
         <summary style="cursor:pointer; font-weight: bold; margin-top: 10px;">Nostr-Kontakte anzeigen</summary>
         <div id="contactsContainer"></div>
     </details>
-</section>
-
+</section>     
+    
 
 
 
@@ -287,6 +325,17 @@ details summary:hover {
         </div>
     </div>
     
+    
+
+    
+<button id="publishContactsButton" class="hidden" onclick="publishContactsToPrivateRelay(JSON.parse(localStorage.getItem('myContacts')))">
+    Kontakte ans private Relay senden
+</button>
+  
+    
+ 
+    
+    
 
     <script>
         const { jsPDF } = window.jspdf;
@@ -304,6 +353,8 @@ details summary:hover {
         let timeEntries = JSON.parse(localStorage.getItem('timeEntries')) || [];
         let projects = JSON.parse(localStorage.getItem('projects')) || [];
         let clients = JSON.parse(localStorage.getItem('clients')) || [];
+        let allContacts = []; // speichert pubkey + profile
+
 
         // Initialisierung
      document.addEventListener('DOMContentLoaded', () => {
@@ -332,13 +383,42 @@ details summary:hover {
   
         });
 
-        function loginWithAlby() {
+
+
+
+
+function safeParseInt(val) {
+    const parsed = parseInt(val);
+    return isNaN(parsed) ? null : parsed;
+}
+
+
+
+
+
+
+function saveData(key, data) {
+    try {
+        localStorage.setItem(key, JSON.stringify(data));
+        console.log(`✔️ Lokal gespeichert: ${key}`);
+    } catch (err) {
+        console.error('🔒 Speicherfehler bei localStorage:', err.message);
+    }
+}
+
+
+
+
+
+
+
+function loginWithAlby() {
     if (!window.nostr) {
         alert("Alby-Erweiterung nicht gefunden. Bitte installiere Alby.");
         return;
     }
     if (!window.NostrTools || !window.NostrTools.SimplePool) {
-        alert("NostrTools noch nicht geladen. Seite neu laden?");
+        alert("NostrTools noch nicht geladen. Bitte Seite neu laden.");
         return;
     }
 
@@ -351,34 +431,54 @@ details summary:hover {
             const relaySelect = document.getElementById('relaySelect');
             relays = Array.from(relaySelect.selectedOptions).map(option => option.value);
 
-console.log('Ausgewählte Relays:', relays);
-
             if (relays.length === 0) {
-                alert("Bitte mindestens ein Relay auswählen.");
+                alert('Bitte mindestens ein Relay auswählen.');
                 return;
             }
 
             pool = new NostrTools.SimplePool();
 
-            // Hier die Relays vorab prüfen
-            checkRelayHealth(relays).then(workingRelays => {
-                if (workingRelays.length === 0) {
-                    alert('❌ Keines der gewählten Relays ist erreichbar. Bitte andere auswählen.');
-                    return;
-                }
+            checkRelayHealth(relays)
+                .then(workingRelays => {
+                    if (workingRelays.length === 0) {
+                        alert('❌ Keines der gewählten Relays ist erreichbar.');
+                        return;
+                    }
 
-                relays = workingRelays; // Nur die funktionierenden Relays übernehmen
-                fetchNostrEvents();
-                loadMyContactsAndProfiles();
-                toggleSections();
-            }).catch(err => {
-                alert('❌ Fehler beim Testen der Relays: ' + err.message);
-            });
+                    relays = workingRelays;
+
+                    // Lade die Events und aktualisiere die UI,
+                    // auch wenn Kontakte fehlschlagen
+                    fetchNostrEvents().catch(err => {
+                        console.error('Fehler beim Laden der Nostr-Events:', err);
+                    });
+
+                    loadMyContactsAndProfiles().catch(err => {
+                        console.error('Fehler beim Laden der Kontakte:', err);
+                        showStatus('⚠️ Kontakte konnten nicht geladen werden.');
+                    });
+
+                    // UI SOFORT umschalten
+                    toggleSections();
+
+                })
+                .catch(err => {
+                    alert('❌ Fehler beim Testen der Relays: ' + err.message);
+                });
+
         })
         .catch(err => {
             document.getElementById('loginError').textContent = "Login fehlgeschlagen: " + err.message;
         });
+
+    // Lade lokale Kontakte aus dem Storage (nur Info-Zweck)
+    let storedContacts = JSON.parse(localStorage.getItem('myContacts') || '[]');
+    if (storedContacts.length === 0) {
+        console.log('ℹ️ Keine gespeicherten Kontakte gefunden.');
+    }
 }
+
+
 
 
         function addCustomRelay() {
@@ -477,12 +577,12 @@ function updateReportFilterOptions() {
 
 
 
-       function updateEntriesTable() {
+  function updateEntriesTable() {
     const entriesBody = document.getElementById('entriesBody');
     entriesBody.innerHTML = '';
 
     if (timeEntries.length === 0) {
-        entriesBody.innerHTML = '<tr><td colspan="5">Keine Einträge vorhanden.</td></tr>';
+        entriesBody.innerHTML = '<tr><td colspan="6">Keine Einträge vorhanden.</td></tr>';
         return;
     }
 
@@ -495,6 +595,7 @@ function updateReportFilterOptions() {
 
         entriesBody.innerHTML += `
             <tr id="entry-${entry.id}">
+                <td><input type="checkbox" class="entry-checkbox" data-id="${entry.id}"></td>
                 <td>${new Date(entry.start).toLocaleDateString('de-DE')}</td>
                 <td class="project-cell">${projectDisplay}</td>
                 <td class="client-cell">${clientDisplay}</td>
@@ -509,51 +610,133 @@ function updateReportFilterOptions() {
 }
 
 
-        function editEntry(entryId) {
+
+
+
+function toggleAllCheckboxes() {
+    const checkboxes = document.querySelectorAll('.entry-checkbox');
+    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+    checkboxes.forEach(cb => cb.checked = !allChecked);
+    // auch die Header-Checkbox synchronisieren
+    document.getElementById('selectAllCheckbox').checked = !allChecked;
+}
+
+function deleteSelectedEntries() {
+    const idsToDelete = Array.from(document.querySelectorAll('.entry-checkbox:checked'))
+        .map(cb => Number(cb.dataset.id));
+    if (idsToDelete.length === 0) {
+        alert('Bitte mindestens einen Eintrag auswählen.');
+        return;
+    }
+    if (!confirm(`Möchtest du ${idsToDelete.length} gewählte Zeiteinträge löschen?`)) return;
+
+    idsToDelete.forEach(id => {
+        const entryToDelete = timeEntries.find(e => e.id === id);
+        timeEntries = timeEntries.filter(e => e.id !== id);
+        if (entryToDelete) {
+            publishNostrEvent('time-entry-deleted', { id }); // optional Nostr-Event
+        }
+    });
+
+    saveData('timeEntries', timeEntries);
+    updateEntriesTable();
+}
+
+
+
+
+
+
+
+
+   function editEntry(entryId) {
     const entry = timeEntries.find(e => e.id === entryId);
     if (!entry) return;
 
     const row = document.getElementById(`entry-${entryId}`);
     const projectCell = row.querySelector('.project-cell');
     const clientCell = row.querySelector('.client-cell');
-    const durationCell = row.children[3];
+    const durationCell = row.children[4]; // Dauer-Spalte (Index anpassen wenn deine Tabelle anders ist!)
 
-    // Nimm die Namen aus dem Entry, sonst leerer String
+    // Vorhandene Werte
     const projectValue = entry.projectName || '';
     const clientValue = entry.clientName || '';
+    const clientFreeTextValue = entry.clientFreeText || '';
+    const durationValue = formatDuration(entry.duration);
 
-    projectCell.innerHTML = `<input type="text" class="edit-input" value="${projectValue}">`;
-    clientCell.innerHTML = `<input type="text" class="edit-input" value="${clientValue}">`;
-    durationCell.innerHTML = `<input type="text" class="edit-input" value="${formatDuration(entry.duration)}" placeholder="z.B. 01:15:30">`;
+    // Projekttextfeld
+    projectCell.innerHTML = `<input type="text" class="edit-input project-input" value="${projectValue}">`;
 
+    // Klientenauswahl + Freitext
+    let clientOptions = '<option value="">Freitext</option>';
+    clients.forEach(client => {
+        const selected = client.id === entry.clientId ? 'selected' : '';
+        clientOptions += `<option value="${client.id}" ${selected}>${client.name}</option>`;
+    });
+
+    clientCell.innerHTML = `
+        <select class="edit-input client-select">${clientOptions}</select>
+        <input type="text" class="edit-input client-free-text" value="${clientFreeTextValue}" placeholder="Klient (optional)" style="${entry.clientId ? 'display:none;' : ''}">
+    `;
+
+    // Dauer
+    durationCell.innerHTML = `<input type="text" class="edit-input" value="${durationValue}" placeholder="z.B. 01:15:30">`;
+
+    // Buttons ersetzen
     const actionCell = row.querySelector('td:last-child');
     actionCell.innerHTML = `
         <button onclick="saveEntry(${entryId})">Speichern</button>
         <button onclick="cancelEdit(${entryId})">Abbrechen</button>
     `;
+
+    // Event listener für das Dropdown
+    const clientSelectElement = clientCell.querySelector('.client-select');
+    const clientFreeTextInput = clientCell.querySelector('.client-free-text');
+
+    clientSelectElement.addEventListener('change', () => {
+        if (clientSelectElement.value === '') {
+            clientFreeTextInput.style.display = '';
+        } else {
+            clientFreeTextInput.style.display = 'none';
+        }
+    });
 }
 
 
-        function saveEntry(entryId) {
+
+  function saveEntry(entryId) {
     const entry = timeEntries.find(e => e.id === entryId);
     if (!entry) return;
 
-    // Werte aus der Dropdown-Auswahl holen
-    const projectSelect = document.getElementById('projectSelect');
-    const clientSelect = document.getElementById('clientSelect');
+    const row = document.getElementById(`entry-${entryId}`);
+    const newProjectName = row.querySelector('.project-cell input.project-input').value.trim();
 
-    const projectName = projectSelect.options[projectSelect.selectedIndex].textContent;
-    const clientName = clientSelect.options[clientSelect.selectedIndex].textContent;
-    const clientPubkey = clientSelect.value;
+    const clientSelectElement = row.querySelector('.client-cell select.client-select');
+    const clientFreeTextInput = row.querySelector('.client-cell input.client-free-text');
 
-    // Felder am Entry speichern
-    entry.projectName = projectName !== 'Kein Projekt auswählen' ? projectName : '';
-    entry.clientName = clientName !== 'Kein Klient auswählen' ? clientName : '';
-    entry.clientPubkey = clientPubkey || '';
+    const newClientId = clientSelectElement.value ? parseInt(clientSelectElement.value) : null;
+    const newClientName = newClientId ? clients.find(c => c.id === newClientId)?.name || '' : '';
+    const newClientFreeText = newClientId ? '' : clientFreeTextInput.value.trim();
 
-    saveData('timeEntries', timeEntries);  // Dein bestehendes Speicher-Utility
+    const newDurationStr = row.children[4].querySelector('input').value.trim();
+    const timeParts = newDurationStr.split(':').map(Number);
+    const newDuration = (timeParts[0] * 3600 + timeParts[1] * 60 + timeParts[2]) * 1000;
+
+    // Speichern der neuen Werte
+    entry.projectName = newProjectName;
+    entry.projectFreeText = newProjectName; // falls gewünscht
+    entry.clientId = newClientId;
+    entry.clientName = newClientName;
+    entry.clientFreeText = newClientFreeText;
+    entry.duration = newDuration;
+
+    saveData('timeEntries', timeEntries);
+    publishNostrEvent('time-entry', entry);
     updateEntriesTable();
 }
+
+
+
 
 
         function deleteEntry(entryId) {
@@ -572,9 +755,11 @@ function updateReportFilterOptions() {
     }
 }
 
-        function cancelEdit(entryId) {
-            updateEntriesTable();
-        }
+     function cancelEdit(entryId) {
+    // Einfach nur die Tabelle zurücksetzen
+    updateEntriesTable();
+}
+
 
         function formatDuration(ms) {
             const hours = Math.floor(ms / 3600000);
@@ -583,53 +768,82 @@ function updateReportFilterOptions() {
             return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
         }
 
-        function exportToPDF() {
-            const reportBody = document.getElementById('reportBody');
-            if (!reportBody || !reportBody.hasChildNodes()) {
-                alert('Bitte zuerst einen Bericht mit Einträgen generieren.');
-                return;
-            }
 
-            try {
-                const { jsPDF } = window.jspdf; // Get jsPDF from global scope
-                const doc = new jsPDF();
 
-                // Check if autoTable is available
-                if (!doc.autoTable) {
-                    throw new Error('jsPDF-AutoTable plugin is not loaded correctly.');
-                }
+ function exportToPDF() {
+    const reportBody = document.getElementById('reportBody');
+    if (!reportBody || !reportBody.hasChildNodes()) {
+        alert('Bitte zuerst einen Bericht mit Einträgen generieren.');
+        return;
+    }
 
-                doc.text('Zeiterfassungs-Bericht', 10, 10);
+    try {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
 
-                const rows = Array.from(reportBody.querySelectorAll('tr')).map(row =>
-                    Array.from(row.querySelectorAll('td')).map(cell => cell.textContent.trim())
-                );
+        if (!doc.autoTable) {
+            throw new Error('jsPDF-AutoTable plugin is not loaded correctly.');
+        }
 
-                doc.autoTable({
-                    head: [['Datum', 'Projekt', 'Client', 'Dauer']],
-                    body: rows,
-                    startY: 20
-                });
+        doc.text('Zeiterfassungs-Bericht', 10, 10);
 
-                const totalHours = document.getElementById('totalHours').textContent;
-                const y = doc.lastAutoTable?.finalY ?? 30;
-                doc.text(`Gesamtstunden: ${totalHours}`, 10, y + 10);
+        const rows = Array.from(reportBody.querySelectorAll('tr')).map(row =>
+            Array.from(row.querySelectorAll('td')).map(cell => cell.textContent.trim())
+        );
+
+        doc.autoTable({
+            head: [['Datum', 'Projekt', 'Client', 'Dauer']],
+            body: rows,
+            startY: 20
+        });
+
+        const totalHours = document.getElementById('totalHours').textContent;
+        let y = doc.lastAutoTable?.finalY ?? 30;
+        doc.text(`Gesamtstunden: ${totalHours}`, 10, y + 10);
+
+        const lightningAddress = localStorage.getItem('lightningAddress');
+
+        if (lightningAddress) {
+            y += 20;
+            doc.text('Danke für die Unterstützung!', 10, y);
+            doc.text(`Lightning: ${lightningAddress}`, 10, y + 10);
+
+            // QR-Code-URL
+            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=lightning:${encodeURIComponent(lightningAddress)}`;
+
+            // Lade das Bild und zeichne es ein
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            img.src = qrUrl;
+
+            img.onload = function() {
+                doc.addImage(img, 'PNG', 10, y + 15, 40, 40);
                 doc.save('zeiterfassung_bericht.pdf');
-
-            } catch (error) {
-                console.error("Fehler beim PDF-Export:", error);
-                alert("Beim Erstellen der PDF ist ein Fehler aufgetreten: " + error.message);
-            }
+            };
+        } else {
+            doc.save('zeiterfassung_bericht.pdf');
         }
 
-        function toggleSections() {
-            document.getElementById('loginSection').classList.toggle('hidden', isLoggedIn);
-            document.getElementById('timerSection').classList.toggle('hidden', !isLoggedIn);
-            document.getElementById('entriesSection').classList.toggle('hidden', !isLoggedIn);
-            document.getElementById('projectSection').classList.toggle('hidden', !isLoggedIn);
-            document.getElementById('reportSection').classList.toggle('hidden', !isLoggedIn);
-            document.getElementById('donationSection').classList.toggle('hidden', !isLoggedIn);
-        }
+    } catch (error) {
+        console.error("Fehler beim PDF-Export:", error);
+        alert("Beim Erstellen der PDF ist ein Fehler aufgetreten: " + error.message);
+    }
+}
+
+
+
+
+
+       function toggleSections() {
+    document.getElementById('loginSection').classList.toggle('hidden', isLoggedIn);
+    document.getElementById('timerSection').classList.toggle('hidden', !isLoggedIn);
+    document.getElementById('entriesSection').classList.toggle('hidden', !isLoggedIn);
+    document.getElementById('projectSection').classList.toggle('hidden', !isLoggedIn);
+    document.getElementById('reportSection').classList.toggle('hidden', !isLoggedIn);
+    document.getElementById('donationSection').classList.toggle('hidden', !isLoggedIn);
+    document.getElementById('contactsSection').classList.toggle('hidden', !isLoggedIn);
+}
+
 
         function startTimer() {
             if (!timerInterval) {
@@ -686,6 +900,7 @@ function updateReportFilterOptions() {
         window.dispatchEvent(new Event('timer-stopped'));
     }
 }
+
 
 
 
@@ -810,19 +1025,32 @@ if (selectedClientFilterId !== 'all') {
         }
 
 
-async function fetchNostrEvents() {
-    try {
-        const filter = {
-            kinds: [30000],
-            authors: [publicKey]
-        };
-        const events = await pool.list(relays, [filter]);
-        console.log(`[Fetch Debug] Abgerufene Nostr-Events (Anzahl: ${events.length}):`, events);
 
-        processFetchedEvents(events); // hier rufst du deinen bisherigen Event-Processor auf
-    } catch (err) {
-        console.error('❌ [Fetch Error] Fehler beim Abrufen der Events:', err);
-        document.getElementById('loginError').textContent = 'Fehler beim Laden der Daten vom Relay.';
+
+async function fetchNostrEvents() {
+    const filter = { kinds: [30000, 0, 1, 3], authors: [publicKey] };
+    const maxTries = 7;
+    const waitTime = 2000;
+    let allEvents = [];
+
+    for (let attempt = 1; attempt <= maxTries; attempt++) {
+        try {
+            allEvents = await pool.list(relays, [filter]);
+            console.log(`🔄 Versuch ${attempt}, erhaltene Events: ${allEvents.length}`);
+
+            if (allEvents.length > 0) break;
+            await new Promise(res => setTimeout(res, waitTime));
+        } catch (e) {
+            console.warn(`❌ Fehler beim Abrufen der Events (Versuch ${attempt}):`, e.message);
+            await new Promise(res => setTimeout(res, waitTime));
+        }
+    }
+
+    if (allEvents.length === 0) {
+        showStatus('⚠️ Es konnten keine Events von den Relays geladen werden.');
+    } else {
+        console.log(`✅ Events geladen:`, allEvents.length);
+        processFetchedEvents(allEvents);
     }
 }
 
@@ -830,51 +1058,90 @@ async function fetchNostrEvents() {
 
 
 
-function processFetchedEvents(events) {
-    // Sortiere Events chronologisch
+
+
+
+async function processFetchedEvents(events) {
     events.sort((a, b) => a.created_at - b.created_at);
 
     const latestTimeEntries = new Map();
     const latestProjects = new Map();
     const latestClients = new Map();
+
     const deletedProjectIds = new Set();
     const deletedClientIds = new Set();
     const deletedTimeEntryIds = new Set();
 
-    events.forEach(event => {
-        const type = event.tags.find(tag => tag[0] === 't')?.[1];
-        try {
-            const data = JSON.parse(event.content);
+    for (const event of events) {
+        const tag = event.tags.find(tag => tag[0] === 't');
+        const type = tag?.[1];
 
-            if (type === 'project-deleted') {
+        if (!type) continue;
+
+        let data;
+        try {
+            data = JSON.parse(event.content);
+        } catch (e) {
+            console.warn('[Nostr] Fehler beim Parsen von Content:', event.content);
+            continue;
+        }
+
+        if (data.id) data.id = parseInt(data.id);
+        if (data.projectId) data.projectId = parseInt(data.projectId);
+        if (data.clientId) data.clientId = parseInt(data.clientId);
+
+        switch (type) {
+            case 'project-deleted':
                 deletedProjectIds.add(data.id);
                 latestProjects.delete(data.id);
-            } else if (type === 'client-deleted') {
+                break;
+            case 'client-deleted':
                 deletedClientIds.add(data.id);
                 latestClients.delete(data.id);
-            } else if (type === 'time-entry-deleted') {
+                break;
+            case 'time-entry-deleted':
                 deletedTimeEntryIds.add(data.id);
                 latestTimeEntries.delete(data.id);
-            } else if (type === 'time-entry') {
-                latestTimeEntries.set(data.id, data);
-            } else if (type === 'project') {
-                latestProjects.set(data.id, data);
-            } else if (type === 'client') {
-                latestClients.set(data.id, data);
+                break;
+            case 'project': {
+                const existing = latestProjects.get(data.id);
+                if (!existing || event.created_at > existing._created_at) {
+                    data._created_at = event.created_at;
+                    latestProjects.set(data.id, data);
+                }
+                break;
             }
-        } catch (e) {
-            console.error('❌ [Fetch Error] Fehler beim Parsen eines Event-Contents:', event, e);
+            case 'client': {
+                const existing = latestClients.get(data.id);
+                if (!existing || event.created_at > existing._created_at) {
+                    data._created_at = event.created_at;
+                    latestClients.set(data.id, data);
+                }
+                break;
+            }
+            case 'time-entry': {
+                const existing = latestTimeEntries.get(data.id);
+                if (!existing || event.created_at > existing._created_at) {
+                    data._created_at = event.created_at;
+                    latestTimeEntries.set(data.id, data);
+                }
+                break;
+            }
         }
-    });
+    }
 
-    timeEntries = Array.from(latestTimeEntries.values()).filter(
-        entry => !deletedTimeEntryIds.has(entry.id) &&
-                 (entry.projectId === null || !deletedProjectIds.has(entry.projectId)) &&
-                 (entry.clientId === null || !deletedClientIds.has(entry.clientId))
+    timeEntries = Array.from(latestTimeEntries.values()).filter(e =>
+        !deletedTimeEntryIds.has(e.id) &&
+        (!e.projectId || !deletedProjectIds.has(e.projectId)) &&
+        (!e.clientId  || !deletedClientIds.has(e.clientId))
     );
 
     projects = Array.from(latestProjects.values()).filter(p => !deletedProjectIds.has(p.id));
     clients = Array.from(latestClients.values()).filter(c => !deletedClientIds.has(c.id));
+
+    localStorage.removeItem('projects');
+    localStorage.removeItem('clients');
+    localStorage.removeItem('timeEntries');
 
     saveData('timeEntries', timeEntries);
     saveData('projects', projects);
@@ -884,36 +1151,54 @@ function processFetchedEvents(events) {
     updateLists();
     updateEntriesTable();
     updateReportFilterOptions();
+
     window.dispatchEvent(new Event('data-loaded'));
 
-    console.log('✅ [Fetch Debug] Daten erfolgreich verarbeitet:', { projects, clients, timeEntries });
+    console.log(`✅ Events verarbeitet: Projekte ${projects.length}, Clients ${clients.length}, Zeit-Einträge ${timeEntries.length}`);
 }
 
 
 
 
 
-    async function publishNostrEvent(type, data) {
-            try {
-                const event = {
-                    kind: 30000,
-                    pubkey: publicKey,
-                    created_at: Math.floor(Date.now() / 1000),
-                    tags: [['t', type]],
-                    content: JSON.stringify(data)
-                };
-                const signedEvent = await window.nostr.signEvent(event);
-                await pool.publish(relays, signedEvent);
-                console.log(`Nostr-Event gesendet (${type}):`, signedEvent);
-            } catch (err) {
-                console.error('Fehler beim Senden des Nostr-Events:', err);
-                document.getElementById('loginError').textContent = 'Fehler beim Speichern der Daten im Relay. Lokale Daten wurden gespeichert.';
-            }
-        }
 
-        function saveData(key, data) {
-            localStorage.setItem(key, JSON.stringify(data));
-        }
+
+
+ async function publishNostrEvent(type, data) {
+    if (!publicKey || !relays || relays.length === 0 || !window.nostr) {
+        console.warn('⚠️ publishNostrEvent ausgelassen – unvollständige Umgebung.');
+        return;
+    }
+
+    const event = {
+        kind: 30000,
+        pubkey: publicKey,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [['t', type]],
+        content: JSON.stringify(data)
+    };
+
+    try {
+        const signed = await window.nostr.signEvent(event);
+        await pool.publish(relays, signed);
+        console.log(`✅ Event "${type}" veröffentlicht:`, signed);
+    } catch (e) {
+        console.warn('❌ publishNostrEvent fehlgeschlagen:', e.message);
+        document.getElementById('loginError').textContent = 'Fehler beim Veröffentlichen des Nostr-Events.';
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
 
         async function makeLightningDonation() {
     try {
@@ -1012,6 +1297,10 @@ function processFetchedEvents(events) {
 
 
 
+
+
+
+
   (function enableTimerPersistence() {
     const TIMER_KEY = 'persistentTimerStart';
     const PROJECT_KEY = 'persistentProject';
@@ -1075,6 +1364,8 @@ function processFetchedEvents(events) {
 
 
 
+
+
 function saveLightningAddress(event) {
     const addr = document.getElementById('lightningAddressInput').value.trim();
     if (!addr) {
@@ -1101,6 +1392,7 @@ function saveLightningAddress(event) {
 }
 
 
+
 function editLightningAddress() {
     // Zeige Eingabefeld und Button wieder
     document.getElementById('lightningAddressInputContainer').classList.remove('hidden');
@@ -1116,55 +1408,162 @@ function editLightningAddress() {
 
 
 
+
+
+// Hilfsfunktion für Statusmeldungen in der UI
+function showStatus(message) {
+    let statusEl = document.getElementById('statusMessage');
+    if (!statusEl) {
+        statusEl = document.createElement('p');
+        statusEl.id = 'statusMessage';
+        statusEl.style.cssText = `
+            padding: 0.5rem;
+            background: #222;
+            color: white;
+            border-radius: 4px;
+            margin: 0.5rem 0;
+        `;
+        document.querySelector('.container').prepend(statusEl); // oben in die .container einfügen
+    }
+    statusEl.textContent = message;
+}
+
+
+
 async function loadMyContactsAndProfiles() {
+    showStatus('⏳ Lade Kontakte aus allen gewählten Relays ...');
+
+    let attempts = 0;
+    const maxAttempts = 9;
+    const delayMs = 4000;
+    let allContactsEvents = [];
+
+    while (attempts < maxAttempts) {
+        attempts++;
+        try {
+            allContactsEvents = await pool.list(relays, [{ kinds: [3], authors: [publicKey] }]);
+            console.log(`ℹ️ [loadMyContactsAndProfiles] Versuch ${attempts}: ${allContactsEvents.length} gefunden.`);
+            if (allContactsEvents.length > 0) break;
+            await new Promise(res => setTimeout(res, delayMs));
+        } catch (error) {
+            console.error(`❌ [loadMyContactsAndProfiles] Fehler beim Abrufen der Kontakte (Versuch ${attempts}):`, error);
+            await new Promise(res => setTimeout(res, delayMs));
+        }
+    }
+
+    if (allContactsEvents.length === 0) {
+        showStatus('⚠️ Keine Kontakte gefunden.');
+        return;
+    }
+
+    const contactsEvent = allContactsEvents.sort((a, b) => b.created_at - a.created_at)[0];
+    const nostrContacts = contactsEvent.tags.filter(tag => tag[0] === 'p').map(tag => tag[1]);
+    localStorage.setItem('myContacts', JSON.stringify(nostrContacts));
+    showStatus(`✅ ${nostrContacts.length} Kontakte gefunden.`);
+
+    await loadProfilesForContacts(nostrContacts);
+}
+
+
+
+
+
+
+
+
+
+async function loadProfilesForContacts(nostrContacts) {
+    if (!Array.isArray(nostrContacts) || nostrContacts.length === 0) {
+        console.warn('⚠️ Keine Kontakte übergeben.');
+        return;
+    }
+
     try {
-        console.log('⏳ Lade Kontakte ...');
+        console.log(`🔍 Lade Profile für ${nostrContacts.length} Kontakte...`);
 
-        const contactsFilter = { kinds: [3], authors: [publicKey] };
-        const contactsEvents = await pool.list(relays, [contactsFilter]);
-        let nostrContacts = [];
+        const profileEvents = await pool.list(relays, [
+            { kinds: [0], authors: nostrContacts }
+        ]);
 
-        if (contactsEvents.length > 0) {
-            const contactsEvent = contactsEvents.sort((a, b) => a.created_at - b.created_at).pop();
-            nostrContacts = contactsEvent.tags
-                .filter(tag => tag[0] === 'p')
-                .map(tag => tag[1]);
+        const profileMap = new Map();
+
+        for (const event of profileEvents) {
+            const pubkey = event.pubkey;
+            let profile = null;
+
+            try {
+                profile = JSON.parse(event.content);
+            } catch (e) {
+                console.warn(`❌ Ungültiges JSON für ${pubkey}:`, event.content);
+                continue;
+            }
+
+            const existing = profileMap.get(pubkey);
+            if (!existing || event.created_at > existing.created_at) {
+                profileMap.set(pubkey, { ...profile, created_at: event.created_at });
+            }
         }
 
-        console.log('nostrContacts:', nostrContacts);
+        // Speichern für Filterung
+        allContacts = nostrContacts.map(pubkey => ({
+            pubkey,
+            profile: profileMap.get(pubkey) || null
+        }));
 
-        // Lade die Profile der gefundenen Kontakte
-        await loadProfilesForContacts(nostrContacts);
-        console.log('✅ Fertig mit loadMyContactsAndProfiles');
+        renderFilteredContacts(); // UI aktualisieren
+
+        console.log(`✅ ${profileMap.size} Profile geladen und dargestellt.`);
+
     } catch (err) {
-        console.error('❌ Fehler beim Laden der Kontakte:', err);
+        console.error('❌ Fehler beim Laden der Profile (Batch):', err);
+        showStatus('⚠️ Fehler beim Laden der Profile.');
     }
 }
 
 
-// Hilfsfunktion für die Profile
-async function loadProfilesForContacts(nostrContacts) {
-    try {
-        const profilePromises = nostrContacts.map(async pubkey => {
-            const profileEvents = await pool.list(relays, [{ kinds: [0], authors: [pubkey] }]);
-            if (profileEvents.length === 0) return null;
 
-            // Nimm das neueste Profil
-            return profileEvents.sort((a, b) => a.created_at - b.created_at).pop();
-        });
 
-        const profileEvents = await Promise.all(profilePromises);
 
-        profileEvents.forEach((profileEvent, index) => {
-            if (profileEvent) {
-                const profile = JSON.parse(profileEvent.content);
-                displayContact(profile, nostrContacts[index]);
+function renderFilteredContacts() {
+    const container = document.getElementById('contactsContainer');
+    container.innerHTML = ''; // Liste leeren
+
+    const onlyWithLightning = document.getElementById('filterWithLightning').checked;
+    const searchQuery = document.getElementById('contactSearchInput').value.trim().toLowerCase();
+
+    const filtered = allContacts
+        .filter(({ profile }) => {
+            if (onlyWithLightning && !(profile?.lud16 || profile?.lnurl)) {
+                return false;
             }
+
+            if (searchQuery) {
+                const name =
+                    profile?.display_name ||
+                    profile?.name ||
+                    profile?.username ||
+                    '';
+                return name.toLowerCase().includes(searchQuery);
+            }
+
+            return true;
+        })
+        .sort((a, b) => {
+            const nameA = (a.profile?.display_name || a.profile?.name || a.profile?.username || '').toLowerCase();
+            const nameB = (b.profile?.display_name || b.profile?.name || b.profile?.username || '').toLowerCase();
+            return nameA.localeCompare(nameB);
         });
-    } catch (err) {
-        console.error('❌ Fehler beim Laden der Profile:', err);
+
+    if (filtered.length === 0) {
+        container.innerHTML = `<p style="color:#666;">Keine Kontakte gefunden.</p>`;
+        return;
     }
+
+    filtered.forEach(({ profile, pubkey }) => {
+        displayContact(profile, pubkey);
+    });
 }
+
 
 
 
@@ -1172,20 +1571,34 @@ async function loadProfilesForContacts(nostrContacts) {
 
 function displayContact(profile, pubkey) {
     const container = document.getElementById('contactsContainer');
+
+    // Kontakt bereits angezeigt? → abbrechen
+    if (document.getElementById(`contact-${pubkey}`)) {
+        return;
+    }
+
     const div = document.createElement('div');
+    div.id = `contact-${pubkey}`;
 
-  const nameToShow = profile.name || pubkey.slice(0, 8);
-const pictureUrl = profile.picture || 'https://via.placeholder.com/40'; // Platzhalter, falls kein Bild
+    const nameToShow =
+        profile?.display_name ||
+        profile?.name ||
+        profile?.username ||
+        pubkey.slice(0, 8) + '…';
 
-div.innerHTML = `
-    <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
-        <img src="${pictureUrl}" alt="${nameToShow}" style="width:40px; height:40px; border-radius:50%;">
-        <strong>${nameToShow}</strong>
-    </div>
-    <button onclick="sendTipTo('${profile.lud16 || profile.lnurl}', '${nameToShow}')">💸 Danke senden</button>
-    <button onclick="addAsClient('${nameToShow}', '${pubkey}', '${profile.lud16 || profile.lnurl || ''}')">➕ Als Client hinzufügen</button>
+    const pictureUrl = profile?.picture || 'https://via.placeholder.com/40';
+    const lightning = profile?.lud16 || profile?.lnurl || '';
 
-`;
+    div.innerHTML = `
+        <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
+            <img src="${pictureUrl}" alt="${nameToShow}" 
+                 style="width:40px; height:40px; border-radius:50%;"
+                 onerror="this.onerror=null; this.src='https://i.nostr.build/y53o2A9HR75zVyg6.jpg'">
+            <strong>${nameToShow}</strong>
+        </div>
+        <button onclick="sendTipTo('${lightning}', '${nameToShow}')" ${lightning ? '' : 'disabled'}>💸 Danke senden</button>
+        <button onclick="addAsClient('${nameToShow}', '${pubkey}', '${lightning}')">➕ Als Client hinzufügen</button>
+    `;
 
     container.appendChild(div);
 }
@@ -1193,70 +1606,249 @@ div.innerHTML = `
 
 
 
+
+
+
 async function sendTipTo(lightningAddress, name) {
-    if (!lightningAddress) {
-        alert(`Kein Lightning-Address-Feld für ${name} gefunden.`);
+    if (!lightningAddress || !lightningAddress.includes('@')) {
+        alert(`⚠️ Ungültige Lightning-Adresse für ${name}`);
         return;
     }
 
+    const buttons = document.querySelectorAll(`button[onclick*="${lightningAddress}"]`);
+    buttons.forEach(btn => {
+        btn.disabled = true;
+        btn.textContent = "⏳ Senden …";
+    });
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000); // 10 Sekunden Timeout
+
     try {
         await window.webln.enable();
-        const amount = prompt(`Wie viele Sats willst du an ${name} senden?`, 1000);
-        if (!amount) return;
 
-        const username = lightningAddress.split('@')[0];
-        const lnurlData = await fetch(`https://getalby.com/.well-known/lnurlp/${username}`).then(res => res.json());
-        const invoiceResponse = await fetch(`${lnurlData.callback}?amount=${amount * 1000}`).then(res => res.json());
-        await window.webln.sendPayment(invoiceResponse.pr);
+        const [namePart, domain] = lightningAddress.split('@');
+        const lnurlUrl = `https://${domain}/.well-known/lnurlp/${namePart}`;
 
-        alert(`✅ Zahlung an ${name} erfolgreich!`);
+        const response = await fetch(lnurlUrl, { signal: controller.signal });
+        if (!response.ok) throw new Error(`LNURL-Server antwortete mit Status ${response.status}`);
+        const lnurlData = await response.json();
+
+        if (!lnurlData.callback || lnurlData.status === 'ERROR') {
+            throw new Error('Ungültige Antwort vom LNURL-Server.');
+        }
+
+        const amountInput = prompt(`Wieviele Sats möchtest du an ${name} senden?`, "1000");
+
+        if (amountInput === null) {
+            throw new Error('__ABORTED__'); // Spezieller Marker für Abbruch
+        }
+
+        const amount = parseInt(amountInput);
+        if (isNaN(amount) || amount < 1) {
+            throw new Error('__INVALID_AMOUNT__');
+        }
+
+        const invoiceResponse = await fetch(`${lnurlData.callback}?amount=${amount * 1000}`, { signal: controller.signal });
+        const invoiceData = await invoiceResponse.json();
+
+        if (!invoiceData.pr) throw new Error('Zahlungsanforderung fehlgeschlagen.');
+
+        await window.webln.sendPayment(invoiceData.pr);
+        alert(`✅ Zahlung erfolgreich an ${name} gesendet!`);
+
     } catch (error) {
-        alert(`Fehler beim Senden an ${name}: ${error.message}`);
+        if (error.name === 'AbortError') {
+            alert(`⏱️ Der Zahlungsvorgang an ${name} hat zu lange gedauert (Timeout).`);
+        } else if (error.message === '__ABORTED__') {
+            alert(`⚠️ Zahlung an ${name} wurde abgebrochen.`);
+        } else if (error.message === '__INVALID_AMOUNT__') {
+            alert(`❌ Ungültiger Betrag – Zahlung an ${name} wurde nicht ausgeführt.`);
+        } else {
+            alert(`❌ Zahlung an ${name} fehlgeschlagen: ${error.message}`);
+        }
+        console.error(error);
+    } finally {
+        clearTimeout(timeout);
+        buttons.forEach(btn => {
+            btn.disabled = false;
+            btn.textContent = "💸 Danke senden";
+        });
     }
 }
+
+
+
 
 
 
 
 function addAsClient(name, pubkey, lightning) {
-    let clients = JSON.parse(localStorage.getItem('clients')) || [];
+    // Lade die globalen Clients aus localStorage
+    clients = JSON.parse(localStorage.getItem('clients')) || [];
 
+    // Doppelte verhindern
     if (clients.some(client => client.pubkey === pubkey)) {
         alert(`${name} ist bereits als Client vorhanden.`);
         return;
     }
 
-    const id = Date.now(); // numerische ID
+    const id = Date.now();
     const newClient = { id, name, pubkey, lightning };
     clients.push(newClient);
-    localStorage.setItem('clients', JSON.stringify(clients));
+
+    // Speichern und UI updaten
+    saveData('clients', clients); 
     updateSelectOptions();
     updateLists();
     updateReportFilterOptions();
-    alert(`✅ ${name} als Client hinzugefügt!`);
+
+    // 📍 Client auch ans Nostr-Relay veröffentlichen
+    publishNostrEvent('client', newClient);
+
+    alert(`✅ ${name} als Client hinzugefügt und als Event veröffentlicht!`);
 }
 
 
 
-// Test-Version von checkRelayHealth:
-async function checkRelayHealth(relays, timeoutMs = 5000) {
-    const workingRelays = [];
+
+
+
+
+
+
+async function checkRelayHealth(relays, delayMs = 1500) {
+    const healthy = [];
 
     for (const url of relays) {
         try {
             const relay = pool.ensureRelay(url);
-            // Warte kurz, damit die Verbindung zustande kommt
-            await new Promise(res => setTimeout(res, 2000));
-            workingRelays.push(url);
-            console.log(`✅ Relay OK (einfache Prüfung): ${url}`);
+            await new Promise(res => setTimeout(res, delayMs));
+            healthy.push(url);
+            console.log(`✅ Relay in Ordnung: ${url}`);
         } catch (err) {
-            console.warn(`❌ Relay down oder fehlerhaft: ${url}`, err.message || err);
+            console.warn(`❌ Relay nicht erreichbar: ${url} (${err.message})`);
         }
     }
 
-    return workingRelays;
+    return healthy;
 }
 
-</script>
+
+
+
+
+
+
+
+// Publiziere alle Kontakte automatisch auf dem privaten Relay
+async function publishContactsToPrivateRelay(nostrContacts) {
+    try {
+        if (!nostrContacts || nostrContacts.length === 0) {
+            console.log('ℹ️ Keine Kontakte gefunden, nichts zu veröffentlichen.');
+            return;
+        }
+
+        const tags = nostrContacts.map(pubkey => ['p', pubkey]);
+        const event = {
+            kind: 3,
+            pubkey: publicKey,
+            created_at: Math.floor(Date.now() / 1000),
+            tags,
+            content: ''
+        };
+        const signedEvent = await window.nostr.signEvent(event);
+
+        // Sende nur an Dein privates Relay
+        const privateRelays = relays.filter(url => url.includes('.onion'));
+        if (privateRelays.length === 0) {
+            console.log('ℹ️ Kein privates Relay gefunden.');
+            return;
+        }
+
+        await pool.publish(privateRelays, signedEvent);
+        console.log('✅ Neueste Kontakte erfolgreich an private Relays veröffentlicht.');
+    } catch (error) {
+        console.error('❌ Fehler beim Veröffentlichen der Kontakte:', error);
+    }
+}
+
+
+
+
+
+
+
+async function checkContactsOnPrivateRelay() {
+    const privateRelays = relays.filter(url => url.includes('.onion') || url.includes('mein-privat-relay.com'));
+    if (privateRelays.length === 0) {
+        console.log('❌ Kein privates Relay in der Relays-Liste gefunden.');
+        return;
+    }
+
+    try {
+        const events = await pool.list(privateRelays, [
+            { kinds: [3], authors: [publicKey] }
+        ]);
+
+        if (events.length === 0) {
+            console.log('ℹ️ Keine Kontakte auf dem privaten Relay gefunden.');
+            return;
+        }
+
+        console.log(`✅ ${events.length} Kontakte-Events gefunden auf dem privaten Relay:`);
+        events.sort((a, b) => b.created_at - a.created_at).forEach((ev, index) => {
+            console.log(`#${index + 1}`, ev.created_at, ev.tags);
+        });
+
+        // Kontakte extrahieren
+        const latestEvent = events.sort((a,b) => b.created_at - a.created_at)[0];
+        const nostrContacts = latestEvent.tags
+            .filter(tag => tag[0] === 'p')
+            .map(tag => tag[1]);
+
+        console.log('Kontakte aus privatem Relay:', nostrContacts);
+
+        // Jetzt zusätzlich: Profile von öffentlichen Relays holen und ins private senden
+        const publicRelays = relays.filter(r => !r.includes('.onion') && !r.includes('mein-privat-relay.com'));
+
+        for (const pubkey of nostrContacts) {
+            try {
+                const profileEvents = await pool.list(publicRelays, [
+                    { kinds: [0], authors: [pubkey] }
+                ]);
+
+                if (profileEvents.length === 0) {
+                    console.log(`❌ Kein Profil gefunden für ${pubkey}`);
+                    continue;
+                }
+
+                const latestProfileEvent = profileEvents.sort((a, b) => b.created_at - a.created_at)[0];
+
+                await pool.publish(privateRelays, latestProfileEvent);
+                console.log(`✅ Profil veröffentlicht für ${pubkey} an privates Relay`);
+
+            } catch (err) {
+                console.warn(`⚠️ Fehler beim Verarbeiten von ${pubkey}:`, err);
+            }
+        }
+
+        alert("Profile wurden erfolgreich an dein privates Relay übertragen.");
+
+    } catch (err) {
+        console.error('❌ Fehler beim Abrufen der Kontakte vom privaten Relay:', err);
+    }
+}
+
+
+
+
+    </script>
+    
+   <button id="checkPrivateRelayContactsButton" onclick="checkContactsOnPrivateRelay()">
+    Kontakte prüfen
+</button> 
+
+    
 </body>
 </html>
